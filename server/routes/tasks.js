@@ -5,6 +5,7 @@ const TopicProgress = require('../models/TopicProgress');
 const DayLog = require('../models/DayLog');
 const authMiddleware = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
+const { syncTasksToDayLog } = require('../utils/syncHelpers');
 
 // Helper to get local date in YYYY-MM-DD
 function getLocalDateString() {
@@ -66,6 +67,7 @@ router.post('/', [
     });
 
     await newTask.save();
+    await syncTasksToDayLog(req.user._id, taskDate, req.user);
     res.status(201).json(newTask);
   } catch (error) {
     console.error('Create task error:', error);
@@ -75,7 +77,7 @@ router.post('/', [
 
 // Toggle task check or update text
 router.patch('/:id', authMiddleware, async (req, res) => {
-  const { done, text, reflection } = req.body;
+  const { done, text, reflection, studyTime } = req.body;
   try {
     let task = await TodayTask.findOne({ _id: req.params.id, userId: req.user._id });
     if (!task) {
@@ -85,6 +87,7 @@ router.patch('/:id', authMiddleware, async (req, res) => {
     if (done !== undefined) task.done = done;
     if (text !== undefined) task.text = text;
     if (reflection !== undefined) task.reflection = reflection;
+    if (studyTime !== undefined) task.studyTime = studyTime;
 
     await task.save();
 
@@ -140,6 +143,8 @@ router.patch('/:id', authMiddleware, async (req, res) => {
       }
     }
 
+    await syncTasksToDayLog(req.user._id, task.date, req.user);
+
     if (updatedProgress) {
       res.json({ task, topicProgress: updatedProgress });
     } else {
@@ -158,6 +163,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
+    await syncTasksToDayLog(req.user._id, task.date, req.user);
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
     console.error('Delete task error:', error);

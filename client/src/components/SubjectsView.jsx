@@ -42,6 +42,10 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   const [movingId, setMovingId] = useState(null);
   const [activeMediaUrl, setActiveMediaUrl] = useState(null);
   const [activeMediaType, setActiveMediaType] = useState(null); // 'image' | 'youtube'
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const fileInputRef = useRef(null);
 
   const resources = progress.resources || [];
@@ -53,11 +57,46 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   const allFolders = resources.filter(r => r.type === 'folder' && r.id !== movingId);
 
   // Helper to extract YouTube video ID and build embed link
-  const getYoutubeEmbed = (url) => {
+  const getYoutubeVideoId = (url) => {
     if (!url) return '';
+    const str = String(url).trim();
+    
+    // Check for shorts
+    if (str.includes('/shorts/')) {
+      const parts = str.split('/shorts/');
+      if (parts[1]) {
+        return parts[1].split(/[?#&]/)[0];
+      }
+    }
+    
+    // Check for live stream
+    if (str.includes('/live/')) {
+      const parts = str.split('/live/');
+      if (parts[1]) {
+        return parts[1].split(/[?#&]/)[0];
+      }
+    }
+
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return match && match[2].length === 11 ? `https://www.youtube.com/embed/${match[2]}` : '';
+    const match = str.match(regExp);
+    if (match && match[2].length === 11) {
+      return match[2];
+    }
+    
+    try {
+      const urlObj = new URL(str);
+      const v = urlObj.searchParams.get('v');
+      if (v && v.length === 11) return v;
+    } catch (e) {
+      // ignore
+    }
+    
+    return '';
+  };
+
+  const getYoutubeEmbed = (url) => {
+    const videoId = getYoutubeVideoId(url);
+    return videoId ? `https://www.youtube.com/embed/${videoId}` : '';
   };
 
   const isImageFile = (url) => {
@@ -190,6 +229,8 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
       if (isImageFile(resource.url)) {
         setActiveMediaUrl(resource.url);
         setActiveMediaType('image');
+      } else if (resource.url?.toLowerCase().split('?')[0].endsWith('.pdf')) {
+        window.open(`${window.location.origin}/?pdf=${encodeURIComponent(resource.url)}&name=${encodeURIComponent(resource.name)}`, '_blank');
       } else {
         // PDF or others open in new tab
         window.open(resource.url, '_blank');
@@ -310,9 +351,12 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {currentResources.map((res) => {
-            const isYT = res.type === 'link' && !!getYoutubeEmbed(res.url);
+            const isYT = res.type === 'link' && !!getYoutubeVideoId(res.url);
             const isImg = res.type === 'file' && isImageFile(res.url);
             const isPDF = res.type === 'file' && res.url && res.url.toLowerCase().endsWith('.pdf');
+
+            const ytVideoId = isYT ? getYoutubeVideoId(res.url) : '';
+            const ytThumbnail = ytVideoId ? `https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg` : '';
 
             return (
               <div 
@@ -327,6 +371,12 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
                   {isImg ? (
                     <img 
                       src={res.url} 
+                      alt={res.name} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
+                    />
+                  ) : isYT && ytThumbnail ? (
+                    <img 
+                      src={ytThumbnail} 
                       alt={res.name} 
                       className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
                     />
@@ -454,26 +504,26 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
 
       {/* Lightbox / Video Player Modal */}
       {activeMediaUrl && activeMediaType && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl relative">
-            <button 
-              onClick={() => {
-                setActiveMediaUrl(null);
-                setActiveMediaType(null);
-              }}
-              className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-black/60 rounded-full text-white z-10 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            
-            <div className="p-4 border-b border-border bg-muted/10">
-              <h3 className="font-bold font-outfit text-sm text-foreground truncate pr-10">
-                Media Preview & Active Learning
-              </h3>
-            </div>
+        activeMediaType === 'youtube' ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+            <div className="bg-card border border-border w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl relative">
+              <button 
+                onClick={() => {
+                  setActiveMediaUrl(null);
+                  setActiveMediaType(null);
+                }}
+                className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-black/60 rounded-full text-white z-10 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              
+              <div className="p-4 border-b border-border bg-muted/10">
+                <h3 className="font-bold font-outfit text-sm text-foreground truncate pr-10">
+                  Media Preview & Active Learning
+                </h3>
+              </div>
 
-            <div className="bg-black flex items-center justify-center aspect-video w-full">
-              {activeMediaType === 'youtube' ? (
+              <div className="bg-black flex items-center justify-center aspect-video w-full">
                 <iframe 
                   src={activeMediaUrl}
                   title="YouTube video player"
@@ -482,16 +532,101 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
                   allowFullScreen
                   className="w-full h-full"
                 />
-              ) : (
-                <img 
-                  src={activeMediaUrl} 
-                  alt="Cheat Sheet Zoom" 
-                  className="max-w-full max-h-[80vh] object-contain"
-                />
-              )}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm select-none">
+            {/* Close button */}
+            <button 
+              onClick={() => {
+                setActiveMediaUrl(null);
+                setActiveMediaType(null);
+                setScale(1);
+                setPosition({ x: 0, y: 0 });
+              }}
+              className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all z-50 shadow-md"
+              title="Close Preview"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Floating Zoom Controls */}
+            <div className="absolute bottom-6 flex items-center gap-3 px-4 py-2 bg-white/10 backdrop-blur-md border border-white/10 rounded-full z-50 shadow-lg text-white">
+              <button 
+                type="button"
+                onClick={() => setScale(prev => Math.max(prev - 0.25, 0.5))} 
+                className="p-1 text-base font-bold w-6 h-6 flex items-center justify-center hover:bg-white/15 rounded-full transition-colors"
+                title="Zoom Out"
+              >
+                -
+              </button>
+              <span className="text-xs font-mono font-bold w-12 text-center select-none">
+                {Math.round(scale * 100)}%
+              </span>
+              <button 
+                type="button"
+                onClick={() => setScale(prev => Math.min(prev + 0.25, 4))} 
+                className="p-1 text-base font-bold w-6 h-6 flex items-center justify-center hover:bg-white/15 rounded-full transition-colors"
+                title="Zoom In"
+              >
+                +
+              </button>
+              <div className="w-[1px] h-4 bg-white/20 mx-1" />
+              <button 
+                type="button"
+                onClick={() => {
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                }}
+                className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 hover:bg-white/15 rounded-md transition-colors"
+              >
+                Reset
+              </button>
+            </div>
+
+            {/* Image display container */}
+            <div 
+              className="w-full h-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing"
+              onMouseDown={(e) => {
+                if (scale <= 1) return;
+                setIsDragging(true);
+                setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+              }}
+              onMouseMove={(e) => {
+                if (!isDragging) return;
+                setPosition({
+                  x: e.clientX - dragStart.x,
+                  y: e.clientY - dragStart.y
+                });
+              }}
+              onMouseUp={() => setIsDragging(false)}
+              onMouseLeave={() => setIsDragging(false)}
+              onWheel={(e) => {
+                const zoomFactor = 0.1;
+                if (e.deltaY < 0) {
+                  setScale(prev => Math.min(prev + zoomFactor, 4));
+                } else {
+                  setScale(prev => Math.max(prev - zoomFactor, 0.5));
+                }
+              }}
+            >
+              <img 
+                src={activeMediaUrl} 
+                alt="Preview" 
+                style={{
+                  transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                  transition: isDragging ? 'none' : 'transform 0.15s ease-out',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  objectFit: 'contain'
+                }}
+                draggable="false"
+                className="shadow-2xl rounded-lg"
+              />
+            </div>
+          </div>
+        )
       )}
 
     </div>

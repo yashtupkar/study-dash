@@ -54,7 +54,13 @@ export default function TodayView() {
     deleteTodayTask, 
     currentDay,
     subjects,
-    topicProgress
+    topicProgress,
+    activeStudyTaskId,
+    activeStudySeconds,
+    isStudyTimerRunning,
+    startStudyTask,
+    pauseStudyTask,
+    resumeStudyTask
   } = useApp();
 
   // Task Form States
@@ -250,6 +256,33 @@ export default function TodayView() {
     const mins = Math.floor(secs / 60);
     const remainder = secs % 60;
     return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
+  };
+
+  const formatStudyDuration = (totalSeconds) => {
+    if (!totalSeconds) return '';
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    
+    if (hrs > 0) {
+      return `${hrs}h ${mins}m`;
+    }
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
+
+  const formatTimer = (totalSeconds) => {
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    
+    const pad = (n) => n.toString().padStart(2, '0');
+    if (hrs > 0) {
+      return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    }
+    return `${pad(mins)}:${pad(secs)}`;
   };
 
   // Ambient Audio Effects & Controls
@@ -491,6 +524,7 @@ export default function TodayView() {
                   const isTopicTask = !!task.subjectKey;
                   const subColor = isTopicTask ? subjectColors[task.subjectKey] || { bg: 'bg-muted border-border text-muted-foreground', name: 'Task' } : null;
                   const topicDetail = isTopicTask ? topicProgress.find(p => p.subjectKey === task.subjectKey && p.topic === task.topic) : null;
+                  const isActiveTask = activeStudyTaskId === task._id;
 
                   return (
                     <div 
@@ -498,7 +532,9 @@ export default function TodayView() {
                       className={`flex flex-col p-3 border rounded-xl bg-card transition-all ${
                         task.done 
                           ? 'border-primary/20 bg-primary/5/10 hover:bg-primary/5/20 shadow-sm shadow-primary/5' 
-                          : 'border-border hover:border-border/80 hover:bg-muted/10'
+                          : isActiveTask
+                            ? 'border-primary bg-primary/5 shadow-md shadow-primary/10 animate-[pulse_3s_infinite]'
+                            : 'border-border hover:border-border/80 hover:bg-muted/10'
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -525,6 +561,21 @@ export default function TodayView() {
                               <span className={`text-sm font-semibold truncate ${task.done ? 'text-muted-foreground line-through font-medium' : 'text-foreground'}`}>
                                 {task.text}
                               </span>
+
+                              {/* Study time badge */}
+                              {task.studyTime > 0 && !isActiveTask && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0 flex items-center gap-1">
+                                  <Timer className="w-3 h-3 text-muted-foreground/80" />
+                                  <span>{task.done ? 'Studied: ' : ''}{formatStudyDuration(task.studyTime)}</span>
+                                </span>
+                              )}
+
+                              {isActiveTask && (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1 ${isStudyTimerRunning ? 'bg-primary/10 text-primary animate-pulse border border-primary/20' : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20'}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${isStudyTimerRunning ? 'bg-primary animate-ping' : 'bg-yellow-500'} inline-block`}></span>
+                                  <span>{isStudyTimerRunning ? 'Studying: ' : 'Paused: '}{formatTimer(activeStudySeconds)}</span>
+                                </span>
+                              )}
                             </div>
 
                             {/* Extra topic badges */}
@@ -564,6 +615,60 @@ export default function TodayView() {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+
+                      {/* Study control buttons */}
+                      {!task.done && (
+                        <div className="mt-2.5 pt-2.5 border-t border-border/40 flex flex-wrap items-center justify-between gap-2">
+                          {isActiveTask ? (
+                            <div className="flex items-center gap-2 w-full justify-between">
+                              <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                                <BookOpen className="w-3.5 h-3.5 text-primary" />
+                                Active Session
+                              </span>
+                              <div className="flex gap-2">
+                                {isStudyTimerRunning ? (
+                                  <button
+                                    type="button"
+                                    onClick={pauseStudyTask}
+                                    className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-yellow-500/30 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20 transition-all flex items-center gap-1"
+                                  >
+                                    <Pause className="w-3 h-3" />
+                                    Pause
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={resumeStudyTask}
+                                    className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all flex items-center gap-1"
+                                  >
+                                    <Play className="w-3 h-3" />
+                                    Resume
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleTaskCheckClick(task)}
+                                  className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded bg-primary text-primary-foreground hover:bg-primary/95 transition-all flex items-center gap-1 shadow-sm"
+                                >
+                                  <CheckCircle className="w-3 h-3" />
+                                  Complete Task
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 w-full justify-end">
+                              <button
+                                type="button"
+                                onClick={() => startStudyTask(task._id)}
+                                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-border hover:border-primary/50 hover:bg-primary/5 text-muted-foreground hover:text-primary transition-all flex items-center gap-1"
+                              >
+                                <Play className="w-3 h-3" />
+                                Start Studying
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Display Feynman explanation if completed */}
                       {task.done && task.reflection && (

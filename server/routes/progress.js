@@ -4,6 +4,7 @@ const TopicProgress = require('../models/TopicProgress');
 const DayLog = require('../models/DayLog');
 const TodayTask = require('../models/TodayTask');
 const authMiddleware = require('../middleware/auth');
+const { syncDayLogToTasks, syncTasksToDayLog } = require('../utils/syncHelpers');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -146,6 +147,8 @@ router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res
         { userId: req.user._id, date: todayDateStr, subjectKey, topic },
         { done: done }
       );
+
+      await syncTasksToDayLog(req.user._id, todayDateStr, req.user);
     }
 
     res.json(progress);
@@ -191,6 +194,14 @@ router.patch('/days/:day', authMiddleware, async (req, res) => {
     if (notes !== undefined) dayLog.notes = notes;
 
     await dayLog.save();
+
+    // If completed state was updated, sync tasks & topics progress
+    if (completed !== undefined) {
+      await syncDayLogToTasks(req.user._id, Number(day), completed, req.user);
+      // Reload to get updated topics count and updated fields
+      dayLog = await DayLog.findOne({ userId: req.user._id, day: Number(day) });
+    }
+
     res.json(dayLog);
   } catch (error) {
     console.error('Update day log error:', error);

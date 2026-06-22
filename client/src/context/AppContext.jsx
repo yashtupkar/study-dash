@@ -76,6 +76,11 @@ export const AppProvider = ({ children }) => {
   const [todayTasks, setTodayTasks] = useState([]);
   const [notes, setNotes] = useState([]);
 
+  // Study Timer States
+  const [activeStudyTaskId, setActiveStudyTaskId] = useState(null);
+  const [activeStudySeconds, setActiveStudySeconds] = useState(0);
+  const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
+
   // Quotes List
   const quotes = [
     "Success is the sum of small efforts, repeated day in and day out.",
@@ -119,11 +124,12 @@ export const AppProvider = ({ children }) => {
       try {
         const res = await axios.get('/api/auth/me');
         setUser(res.data);
-        // Apply theme
         if (res.data.theme === 'dark') {
           document.documentElement.classList.add('dark');
+          localStorage.setItem('theme', 'dark');
         } else {
           document.documentElement.classList.remove('dark');
+          localStorage.setItem('theme', 'light');
         }
       } catch (err) {
         console.error('Fetch user error:', err);
@@ -185,8 +191,10 @@ export const AppProvider = ({ children }) => {
       setUser(res.data.user);
       if (res.data.user.theme === 'dark') {
         document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
       } else {
         document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
       }
       toast.success(`Welcome back, ${res.data.user.name}!`);
       return true;
@@ -203,8 +211,10 @@ export const AppProvider = ({ children }) => {
       setUser(res.data.user);
       if (res.data.user.theme === 'dark') {
         document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
       } else {
         document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
       }
       toast.success('Registration successful! Syllabus initialized.');
       return true;
@@ -279,6 +289,13 @@ export const AppProvider = ({ children }) => {
         }
       });
       
+      // If completed state was updated, reload today's tasks and topic progress to sync UI
+      if (updates.completed !== undefined) {
+        await fetchTasksForDate(getLocalDateString());
+        const progRes = await axios.get('/api/progress/topics');
+        setTopicProgress(progRes.data);
+      }
+
       // Check if this was marked as completed and celebrating it
       if (updates.completed === true) {
         toast.success(`🎉 Day ${day} Goal Completed! Stay consistent!`);
@@ -363,6 +380,11 @@ export const AppProvider = ({ children }) => {
     try {
       const res = await axios.post('/api/today-tasks', { text, date, subjectKey, topic });
       setTodayTasks(prev => [...prev, res.data]);
+
+      // Reload day logs to keep dashboard/weekly checklist in sync
+      const daysRes = await axios.get('/api/progress/days');
+      setDayLogs(daysRes.data);
+
       toast.success('Task added!');
     } catch (err) {
       toast.error('Failed to add task');
@@ -370,9 +392,36 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const toggleTodayTask = async (id, done) => {
+  const toggleTodayTask = async (id, done, reflection) => {
     try {
-      const res = await axios.patch(`/api/today-tasks/${id}`, { done });
+      let finalStudyTime = undefined;
+      if (done && id === activeStudyTaskId) {
+        const sessionStr = localStorage.getItem('study_active_session');
+        if (sessionStr) {
+          try {
+            const session = JSON.parse(sessionStr);
+            if (session && session.isRunning) {
+              const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
+              finalStudyTime = session.baseSeconds + elapsed;
+            } else if (session) {
+              finalStudyTime = session.baseSeconds;
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        setIsStudyTimerRunning(false);
+        localStorage.removeItem('study_active_session');
+        setActiveStudyTaskId(null);
+        setActiveStudySeconds(0);
+      }
+
+      const patchPayload = { done, reflection };
+      if (finalStudyTime !== undefined) {
+        patchPayload.studyTime = finalStudyTime;
+      }
+
+      const res = await axios.patch(`/api/today-tasks/${id}`, patchPayload);
       
       let updatedTask = res.data;
       if (res.data.task) {
@@ -385,11 +434,11 @@ export const AppProvider = ({ children }) => {
             p.subjectKey === prog.subjectKey && p.topic === prog.topic ? prog : p
           ));
         }
-
-        // Reload day logs since completing a topic updates day logs count
-        const daysRes = await axios.get('/api/progress/days');
-        setDayLogs(daysRes.data);
       }
+      
+      // Always reload day logs since task updates (custom or topic) sync to day completion!
+      const daysRes = await axios.get('/api/progress/days');
+      setDayLogs(daysRes.data);
       
       setTodayTasks(prev => prev.map(t => t._id === id ? updatedTask : t));
       
@@ -409,12 +458,245 @@ export const AppProvider = ({ children }) => {
     try {
       await axios.delete(`/api/today-tasks/${id}`);
       setTodayTasks(prev => prev.filter(t => t._id !== id));
+
+      // Reload day logs to keep dashboard/weekly checklist in sync
+      const daysRes = await axios.get('/api/progress/days');
+      setDayLogs(daysRes.data);
+
+      if (id === activeStudyTaskId) {
+        setActiveStudyTaskId(null);
+        setIsStudyTimerRunning(false);
+        setActiveStudySeconds(0);
+        localStorage.removeItem('study_active_session');
+      }
+
       toast.success('Task deleted.');
     } catch (err) {
       toast.error('Failed to delete task');
       console.error(err);
     }
   };
+
+  // Today Task Study Timer Functions
+  const updateTodayTaskStudyTime = async (id, studyTime) => {
+    try {
+      const res = await axios.patch(`/api/today-tasks/${id}`, { studyTime });
+      let updatedTask = res.data;
+      if (res.data.task) {
+        updatedTask = res.data.task;
+      }
+      setTodayTasks(prev => prev.map(t => t._id === id ? updatedTask : t));
+      // Reload day logs to keep dashboard/weekly checklist in sync
+      const daysRes = await axios.get('/api/progress/days');
+      setDayLogs(daysRes.data);
+    } catch (err) {
+      console.error('Failed to save study time:', err);
+    }
+  };
+
+  const startStudyTask = async (taskId) => {
+    const task = todayTasks.find(t => t._id === taskId);
+    if (!task) return;
+
+    // Pause current active task first if there is one
+    if (activeStudyTaskId && isStudyTimerRunning && activeStudyTaskId !== taskId) {
+      await pauseStudyTask();
+    }
+
+    setActiveStudyTaskId(taskId);
+    setIsStudyTimerRunning(true);
+    setActiveStudySeconds(task.studyTime || 0);
+
+    const startTime = Date.now();
+    const baseSeconds = task.studyTime || 0;
+    localStorage.setItem('study_active_session', JSON.stringify({
+      taskId,
+      startTime,
+      baseSeconds,
+      lastTickTime: startTime,
+      isRunning: true
+    }));
+  };
+
+  const pauseStudyTask = async () => {
+    if (!activeStudyTaskId) return;
+
+    const sessionStr = localStorage.getItem('study_active_session');
+    let totalSeconds = activeStudySeconds;
+
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        if (session && session.isRunning) {
+          const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
+          totalSeconds = session.baseSeconds + elapsed;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setIsStudyTimerRunning(false);
+    setActiveStudySeconds(totalSeconds);
+
+    localStorage.setItem('study_active_session', JSON.stringify({
+      taskId: activeStudyTaskId,
+      baseSeconds: totalSeconds,
+      isRunning: false
+    }));
+
+    await updateTodayTaskStudyTime(activeStudyTaskId, totalSeconds);
+  };
+
+  const resumeStudyTask = () => {
+    if (!activeStudyTaskId) return;
+
+    const sessionStr = localStorage.getItem('study_active_session');
+    let baseSeconds = activeStudySeconds;
+
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        if (session) {
+          baseSeconds = session.baseSeconds;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    const startTime = Date.now();
+    localStorage.setItem('study_active_session', JSON.stringify({
+      taskId: activeStudyTaskId,
+      startTime,
+      baseSeconds,
+      lastTickTime: startTime,
+      isRunning: true
+    }));
+
+    setIsStudyTimerRunning(true);
+  };
+
+  // Restore study session on mount
+  useEffect(() => {
+    const sessionStr = localStorage.getItem('study_active_session');
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        if (session && session.taskId) {
+          if (session.isRunning) {
+            const elapsed = session.lastTickTime ? Math.floor((session.lastTickTime - session.startTime) / 1000) : 0;
+            const finalSeconds = session.baseSeconds + Math.max(0, elapsed);
+            
+            setActiveStudyTaskId(session.taskId);
+            setIsStudyTimerRunning(false); // Restore in paused state
+            setActiveStudySeconds(finalSeconds);
+            
+            localStorage.setItem('study_active_session', JSON.stringify({
+              taskId: session.taskId,
+              baseSeconds: finalSeconds,
+              isRunning: false
+            }));
+
+            updateTodayTaskStudyTime(session.taskId, finalSeconds);
+          } else {
+            setActiveStudyTaskId(session.taskId);
+            setIsStudyTimerRunning(false);
+            setActiveStudySeconds(session.baseSeconds || 0);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to restore study session", e);
+      }
+    }
+  }, []);
+
+  // Ticking effect for active study timer
+  useEffect(() => {
+    let interval = null;
+    if (isStudyTimerRunning && activeStudyTaskId) {
+      interval = setInterval(() => {
+        const sessionStr = localStorage.getItem('study_active_session');
+        if (sessionStr) {
+          try {
+            const session = JSON.parse(sessionStr);
+            if (session && session.isRunning) {
+              const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
+              const total = session.baseSeconds + elapsed;
+              setActiveStudySeconds(total);
+              
+              localStorage.setItem('study_active_session', JSON.stringify({
+                ...session,
+                lastTickTime: Date.now()
+              }));
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isStudyTimerRunning, activeStudyTaskId]);
+
+  // Auto-save effect
+  useEffect(() => {
+    let interval = null;
+    if (isStudyTimerRunning && activeStudyTaskId) {
+      interval = setInterval(() => {
+        const sessionStr = localStorage.getItem('study_active_session');
+        if (sessionStr) {
+          try {
+            const session = JSON.parse(sessionStr);
+            if (session && session.isRunning) {
+              const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
+              const total = session.baseSeconds + elapsed;
+              updateTodayTaskStudyTime(session.taskId, total);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }, 30000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isStudyTimerRunning, activeStudyTaskId]);
+
+  // Sync state across browser tabs
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'study_active_session') {
+        const sessionStr = e.newValue;
+        if (!sessionStr) {
+          setActiveStudyTaskId(null);
+          setIsStudyTimerRunning(false);
+          setActiveStudySeconds(0);
+          return;
+        }
+        try {
+          const session = JSON.parse(sessionStr);
+          if (session) {
+            setActiveStudyTaskId(session.taskId);
+            setIsStudyTimerRunning(session.isRunning);
+            if (session.isRunning) {
+              const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
+              setActiveStudySeconds(session.baseSeconds + elapsed);
+            } else {
+              setActiveStudySeconds(session.baseSeconds || 0);
+            }
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Settings Actions
   const updateSettings = async (settings) => {
@@ -424,8 +706,10 @@ export const AppProvider = ({ children }) => {
       if (settings.theme) {
         if (settings.theme === 'dark') {
           document.documentElement.classList.add('dark');
+          localStorage.setItem('theme', 'dark');
         } else {
           document.documentElement.classList.remove('dark');
+          localStorage.setItem('theme', 'light');
         }
       }
       
@@ -556,6 +840,12 @@ export const AppProvider = ({ children }) => {
       dailyQuote,
       currentDay,
       streak,
+      activeStudyTaskId,
+      activeStudySeconds,
+      isStudyTimerRunning,
+      startStudyTask,
+      pauseStudyTask,
+      resumeStudyTask,
       login,
       register,
       logout,

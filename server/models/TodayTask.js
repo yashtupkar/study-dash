@@ -7,7 +7,8 @@ const TodayTaskSchema = new mongoose.Schema({
   done: { type: Boolean, default: false },
   subjectKey: { type: String },
   topic: { type: String },
-  reflection: { type: String }
+  reflection: { type: String },
+  studyTime: { type: Number, default: 0 } // study time in seconds
 }, { timestamps: true });
 
 module.exports = mongoose.model('TodayTask', TodayTaskSchema);
