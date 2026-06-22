@@ -38,6 +38,7 @@ import CameraCaptureModal from './CameraCaptureModal';
 // Sub-Component: Topic Resource Explorer
 // ==========================================
 function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource, deleteTopicResource }) {
+  const { getResourceUrl } = useApp();
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [newLinkLabel, setNewLinkLabel] = useState('');
@@ -253,14 +254,15 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
         window.open(resource.url, '_blank');
       }
     } else if (resource.type === 'file') {
+      const fullUrl = getResourceUrl(resource.url);
       if (isImageFile(resource.url)) {
-        setActiveMediaUrl(resource.url);
+        setActiveMediaUrl(fullUrl);
         setActiveMediaType('image');
       } else if (resource.url?.toLowerCase().split('?')[0].endsWith('.pdf')) {
-        window.open(`${window.location.origin}/?pdf=${encodeURIComponent(resource.url)}&name=${encodeURIComponent(resource.name)}`, '_blank');
+        window.open(`${window.location.origin}/?pdf=${encodeURIComponent(fullUrl)}&name=${encodeURIComponent(resource.name)}`, '_blank');
       } else {
         // PDF or others open in new tab
-        window.open(resource.url, '_blank');
+        window.open(fullUrl, '_blank');
       }
     }
   };
@@ -408,7 +410,7 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
                 >
                   {isImg ? (
                     <img 
-                      src={res.url} 
+                      src={getResourceUrl(res.url)} 
                       alt={res.name} 
                       className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
                     />

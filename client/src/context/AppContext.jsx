@@ -2,6 +2,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 
+// Configure Axios baseURL for development (proxy) and production (Render backend URL)
+axios.defaults.baseURL = import.meta.env.PROD 
+  ? 'https://study-dash-jlbw.onrender.com' 
+  : '';
+
 const AppContext = createContext();
 
 // Helper to calculate current day
@@ -823,6 +828,17 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const getResourceUrl = (url) => {
+    if (!url) return '';
+    if (/^https?:\/\//i.test(url) || url.startsWith('data:')) {
+      return url;
+    }
+    const backendUrl = import.meta.env.PROD 
+      ? 'https://study-dash-jlbw.onrender.com' 
+      : 'http://localhost:5000';
+    return `${backendUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
   // Global Derived Stats
   const currentDay = user ? getCurrentDay(user.startDate, user.targetDays) : 1;
   const streak = dayLogs.length > 0 ? calculateStreak(dayLogs, currentDay) : 0;
@@ -870,7 +886,8 @@ export const AppProvider = ({ children }) => {
       loadAllData,
       addTopicResource,
       updateTopicResource,
-      deleteTopicResource
+      deleteTopicResource,
+      getResourceUrl
     }}>
       {children}
     </AppContext.Provider>

@@ -40,7 +40,8 @@ export default function NotesView() {
     subjects,
     topicProgress,
     addTopicResource,
-    deleteTopicResource
+    deleteTopicResource,
+    getResourceUrl
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('materials'); // 'materials' | 'notes'
@@ -351,13 +352,14 @@ export default function NotesView() {
         window.open(res.url, '_blank');
       }
     } else if (res.type === 'file') {
+      const fullUrl = getResourceUrl(res.url);
       if (isImageFile(res.url)) {
-        setActiveMediaUrl(res.url);
+        setActiveMediaUrl(fullUrl);
         setActiveMediaType('image');
       } else if (res.url?.toLowerCase().split('?')[0].endsWith('.pdf')) {
-        window.open(`${window.location.origin}/?pdf=${encodeURIComponent(res.url)}&name=${encodeURIComponent(res.name)}`, '_blank');
+        window.open(`${window.location.origin}/?pdf=${encodeURIComponent(fullUrl)}&name=${encodeURIComponent(res.name)}`, '_blank');
       } else {
-        window.open(res.url, '_blank');
+        window.open(fullUrl, '_blank');
       }
     } else if (res.type === 'folder') {
       setCurrentFolderId(res.id);
@@ -723,7 +725,7 @@ export default function NotesView() {
                       >
                         {isImg ? (
                           <img 
-                            src={res.url} 
+                            src={getResourceUrl(res.url)} 
                             alt={res.name} 
                             className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
                           />
