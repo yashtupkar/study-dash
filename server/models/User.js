@@ -4,7 +4,6 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   passwordHash: { type: String, required: true },
-  theme: { type: String, default: 'dark' },
   targetDays: { type: Number, default: 60 },
   startDate: { type: Date, default: () => {
     const d = new Date();

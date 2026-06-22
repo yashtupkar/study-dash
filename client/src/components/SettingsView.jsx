@@ -19,7 +19,7 @@ export default function SettingsView() {
   const [startDate, setStartDate] = useState(
     user?.startDate ? getLocalDateString(new Date(user.startDate)) : getLocalDateString()
   );
-  const [theme, setTheme] = useState(user?.theme || 'dark');
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [loading, setLoading] = useState(false);
 
   // Helper: Format start date into YYYY-MM-DD
@@ -32,7 +32,7 @@ export default function SettingsView() {
       setStartDate(`${year}-${month}-${day}`);
     }
     if (user?.targetDays) setTargetDays(user.targetDays);
-    if (user?.theme) setTheme(user.theme);
+    setTheme(localStorage.getItem('theme') || 'light');
   }, [user]);
 
   const handleSaveSettings = async (e) => {
@@ -40,16 +40,21 @@ export default function SettingsView() {
     setLoading(true);
     const success = await updateSettings({
       targetDays: Number(targetDays),
-      startDate: new Date(startDate),
-      theme
+      startDate: new Date(startDate)
     });
     setLoading(false);
   };
 
-  const handleThemeToggle = async () => {
+  const handleThemeToggle = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
-    await updateSettings({ theme: nextTheme });
+    localStorage.setItem('theme', nextTheme);
+    if (nextTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    toast.success(`Theme switched to ${nextTheme} mode!`);
   };
 
   const handleImportFileChange = async (e) => {

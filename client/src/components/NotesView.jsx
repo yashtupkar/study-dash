@@ -17,9 +17,11 @@ import {
   Upload, 
   Loader2,
   FileSignature,
-  ChevronRight
+  ChevronRight,
+  Camera
 } from 'lucide-react';
 import { toast } from 'sonner';
+import CameraCaptureModal from './CameraCaptureModal';
 
 const subjectColors = {
   quant: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
@@ -60,6 +62,43 @@ export default function NotesView() {
   const [materialUrl, setMaterialUrl] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  const handleCameraCapture = async (file) => {
+    if (!selectedSubKey || !selectedTopic) {
+      toast.error('Please select a subject and a topic.');
+      return;
+    }
+
+    let targetParentId = null;
+    if (currentFolderId) {
+      const activeFolder = allResources.find(r => r.id === currentFolderId);
+      if (activeFolder && activeFolder.subjectKey === selectedSubKey && activeFolder.topic === selectedTopic) {
+        targetParentId = currentFolderId;
+      }
+    }
+
+    setIsUploading(true);
+    setIsCameraOpen(false);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', 'file');
+    formData.append('name', materialName.trim() || file.name);
+    if (targetParentId) {
+      formData.append('parentId', targetParentId);
+    }
+
+    try {
+      await addTopicResource(selectedSubKey, selectedTopic, formData);
+      setMaterialName('');
+      setShowAddMaterial(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   // Lightbox States
   const [activeMediaUrl, setActiveMediaUrl] = useState(null);
@@ -475,15 +514,29 @@ export default function NotesView() {
             </div>
 
             {materialType === 'file' ? (
-              <div>
+              <div className="space-y-2">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Select File (PDF / Images)</label>
-                <input
-                  type="file"
-                  required
-                  ref={fileInputRef}
-                  accept=".pdf,image/*"
-                  className="w-full text-xs text-muted-foreground file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border file:border-border file:text-xs file:font-semibold file:bg-secondary file:text-secondary-foreground hover:file:bg-secondary/80"
-                />
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <input
+                    type="file"
+                    required
+                    ref={fileInputRef}
+                    accept=".pdf,image/*"
+                    className="flex-1 text-xs text-muted-foreground file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border file:border-border file:text-xs file:font-semibold file:bg-secondary file:text-secondary-foreground hover:file:bg-secondary/80 focus:outline-none"
+                  />
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] font-bold text-muted-foreground/60 uppercase select-none hidden sm:inline">OR</span>
+                    <button
+                      type="button"
+                      disabled={isUploading}
+                      onClick={() => setIsCameraOpen(true)}
+                      className="w-full sm:w-auto px-4 py-2 bg-secondary hover:bg-secondary/80 border border-border text-foreground rounded-lg text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-primary" />
+                      <span>Take Photo</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : materialType === 'link' ? (
               <div>
@@ -917,6 +970,12 @@ export default function NotesView() {
         )
       )}
 
+      <CameraCaptureModal 
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCapture={handleCameraCapture}
+        isUploading={isUploading}
+      />
     </div>
   );
 }

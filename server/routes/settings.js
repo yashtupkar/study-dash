@@ -10,7 +10,7 @@ const authMiddleware = require('../middleware/auth');
 
 // PATCH /api/settings
 router.patch('/settings', authMiddleware, async (req, res) => {
-  const { targetDays, startDate, theme } = req.body;
+  const { targetDays, startDate } = req.body;
 
   try {
     const user = await User.findById(req.user._id);
@@ -18,7 +18,6 @@ router.patch('/settings', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (theme !== undefined) user.theme = theme;
     if (startDate !== undefined) user.startDate = new Date(startDate);
     
     if (targetDays !== undefined && Number(targetDays) > 0) {
@@ -55,7 +54,6 @@ router.patch('/settings', authMiddleware, async (req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
-      theme: user.theme,
       targetDays: user.targetDays,
       startDate: user.startDate
     });
@@ -105,7 +103,6 @@ router.post('/import', authMiddleware, async (req, res) => {
     // 1. Update user details
     if (user) {
       const u = await User.findById(userId);
-      if (user.theme !== undefined) u.theme = user.theme;
       if (user.targetDays !== undefined) u.targetDays = Number(user.targetDays);
       if (user.startDate !== undefined) u.startDate = new Date(user.startDate);
       await u.save();
@@ -191,7 +188,6 @@ router.post('/import', authMiddleware, async (req, res) => {
         id: updatedUser._id,
         name: updatedUser.name,
         email: updatedUser.email,
-        theme: updatedUser.theme,
         targetDays: updatedUser.targetDays,
         startDate: updatedUser.startDate
       }
@@ -256,7 +252,6 @@ router.delete('/reset', authMiddleware, async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        theme: user.theme,
         targetDays: user.targetDays,
         startDate: user.startDate
       }

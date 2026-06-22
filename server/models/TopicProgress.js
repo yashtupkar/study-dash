@@ -25,7 +25,8 @@ const TopicProgressSchema = new mongoose.Schema({
   dailyChecks: [{
     day: { type: Number, required: true },
     done: { type: Boolean, default: false },
-    note: { type: String, default: '' }
+    note: { type: String, default: '' },
+    questions: { type: Number, default: 0 }
   }],
   resources: [ResourceSchema]
 }, { timestamps: true });

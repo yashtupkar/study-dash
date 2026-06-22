@@ -89,7 +89,6 @@ router.post('/register', [
         id: user._id,
         name: user.name,
         email: user.email,
-        theme: user.theme,
         targetDays: user.targetDays,
         startDate: user.startDate
       }
@@ -134,7 +133,6 @@ router.post('/login', [
         id: user._id,
         name: user.name,
         email: user.email,
-        theme: user.theme,
         targetDays: user.targetDays,
         startDate: user.startDate
       }
@@ -151,7 +149,6 @@ router.get('/me', authMiddleware, async (req, res) => {
     id: req.user._id,
     name: req.user.name,
     email: req.user.email,
-    theme: req.user.theme,
     targetDays: req.user.targetDays,
     startDate: req.user.startDate
   });

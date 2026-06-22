@@ -114,7 +114,7 @@ function DashboardShell() {
 
 
 function PdfViewerPage({ url, name }) {
-  const isDark = (localStorage.getItem('theme') || 'dark') === 'dark';
+  const isDark = (localStorage.getItem('theme') || 'light') === 'dark';
 
   return (
     <div className={`h-screen flex flex-col font-outfit ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>

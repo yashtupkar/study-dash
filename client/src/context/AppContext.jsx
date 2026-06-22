@@ -114,6 +114,16 @@ export const AppProvider = ({ children }) => {
     }
   }, [token]);
 
+  // Initialize theme from localStorage on AppProvider mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    if (savedTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
   // Load user on mount
   useEffect(() => {
     const fetchUser = async () => {
@@ -124,13 +134,6 @@ export const AppProvider = ({ children }) => {
       try {
         const res = await axios.get('/api/auth/me');
         setUser(res.data);
-        if (res.data.theme === 'dark') {
-          document.documentElement.classList.add('dark');
-          localStorage.setItem('theme', 'dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-          localStorage.setItem('theme', 'light');
-        }
       } catch (err) {
         console.error('Fetch user error:', err);
         setToken('');
@@ -189,13 +192,6 @@ export const AppProvider = ({ children }) => {
       const res = await axios.post('/api/auth/login', { email, password });
       setToken(res.data.token);
       setUser(res.data.user);
-      if (res.data.user.theme === 'dark') {
-        document.documentElement.classList.add('dark');
-        localStorage.setItem('theme', 'dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-        localStorage.setItem('theme', 'light');
-      }
       toast.success(`Welcome back, ${res.data.user.name}!`);
       return true;
     } catch (err) {
@@ -209,13 +205,6 @@ export const AppProvider = ({ children }) => {
       const res = await axios.post('/api/auth/register', { name, email, password });
       setToken(res.data.token);
       setUser(res.data.user);
-      if (res.data.user.theme === 'dark') {
-        document.documentElement.classList.add('dark');
-        localStorage.setItem('theme', 'dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-        localStorage.setItem('theme', 'light');
-      }
       toast.success('Registration successful! Syllabus initialized.');
       return true;
     } catch (err) {
@@ -231,11 +220,13 @@ export const AppProvider = ({ children }) => {
   };
 
   // Study Progress Actions
-  const toggleTopicDaily = async (subjectKey, topic, day, done) => {
+  const toggleTopicDaily = async (subjectKey, topic, day, done, note, questions) => {
     try {
       const res = await axios.patch(`/api/progress/topics/${subjectKey}/${encodeURIComponent(topic)}/daily`, {
         day,
-        done
+        done,
+        note,
+        questions
       });
       
       // Update local TopicProgress state
@@ -703,15 +694,6 @@ export const AppProvider = ({ children }) => {
     try {
       const res = await axios.patch('/api/settings', settings);
       setUser(res.data);
-      if (settings.theme) {
-        if (settings.theme === 'dark') {
-          document.documentElement.classList.add('dark');
-          localStorage.setItem('theme', 'dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-          localStorage.setItem('theme', 'light');
-        }
-      }
       
       // Reload Day Logs as targetDays changes might scale logs list
       if (settings.targetDays) {
@@ -743,7 +725,15 @@ export const AppProvider = ({ children }) => {
   const exportProgress = async () => {
     try {
       const res = await axios.get('/api/export');
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res.data, null, 2));
+      // Inject current theme into export JSON
+      const dataToExport = {
+        ...res.data,
+        user: res.data.user ? {
+          ...res.data.user,
+          theme: localStorage.getItem('theme') || 'light'
+        } : undefined
+      };
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataToExport, null, 2));
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute("href", dataStr);
       downloadAnchor.setAttribute("download", `study_progress_${getLocalDateString()}.json`);
@@ -761,6 +751,18 @@ export const AppProvider = ({ children }) => {
     try {
       const res = await axios.post('/api/import', jsonData);
       setUser(res.data.user);
+      
+      // If the backup JSON has user.theme, we update localStorage with it
+      if (jsonData?.user?.theme) {
+        const nextTheme = jsonData.user.theme === 'dark' ? 'dark' : 'light';
+        localStorage.setItem('theme', nextTheme);
+        if (nextTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+      
       await loadAllData();
       toast.success('Backup imported successfully! All records loaded.');
       return true;

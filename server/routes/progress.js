@@ -81,17 +81,18 @@ router.patch('/topics/:subjectKey/:topic', authMiddleware, async (req, res) => {
   }
 });
 
-// Toggle daily cell check. VALIDATES day === currentDay
+// Toggle daily cell check or update note/questions. VALIDATES done toggle matches currentDay
 router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res) => {
   const { subjectKey, topic } = req.params;
-  const { day, done, note } = req.body;
+  const { day, done, note, questions } = req.body;
 
   try {
     const currentDay = getCurrentDay(req.user.startDate, req.user.targetDays);
 
-    if (Number(day) !== currentDay) {
+    // Only lock done status toggling to the current active day
+    if (done !== undefined && Number(day) !== currentDay) {
       return res.status(403).json({
-        message: `Locked — only today's cell (Day ${currentDay}) is editable.`
+        message: `Locked — only today's cell (Day ${currentDay}) can be checked/unchecked.`
       });
     }
 
@@ -110,11 +111,13 @@ router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res
     if (checkIndex > -1) {
       if (done !== undefined) progress.dailyChecks[checkIndex].done = done;
       if (note !== undefined) progress.dailyChecks[checkIndex].note = note;
+      if (questions !== undefined) progress.dailyChecks[checkIndex].questions = Number(questions);
     } else {
       progress.dailyChecks.push({
         day: Number(day),
         done: done || false,
-        note: note || ''
+        note: note || '',
+        questions: Number(questions) || 0
       });
     }
 
