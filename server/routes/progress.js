@@ -2,7 +2,18 @@ const express = require('express');
 const router = express.Router();
 const TopicProgress = require('../models/TopicProgress');
 const DayLog = require('../models/DayLog');
+const TodayTask = require('../models/TodayTask');
 const authMiddleware = require('../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { isCloudinaryConfigured, uploadFromBuffer, deleteFromCloudinary } = require('../utils/cloudinary');
+
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 // Helper to calculate current day
 function getCurrentDay(startDate, targetDays) {
@@ -124,6 +135,19 @@ router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res
       { upsert: true, new: true }
     );
 
+    // Sync corresponding TodayTask if it exists
+    if (done !== undefined) {
+      const d = new Date();
+      const offset = d.getTimezoneOffset();
+      const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+      const todayDateStr = localDate.toISOString().split('T')[0];
+
+      await TodayTask.findOneAndUpdate(
+        { userId: req.user._id, date: todayDateStr, subjectKey, topic },
+        { done: done }
+      );
+    }
+
     res.json(progress);
   } catch (error) {
     console.error('Update daily check error:', error);
@@ -170,6 +194,145 @@ router.patch('/days/:day', authMiddleware, async (req, res) => {
     res.json(dayLog);
   } catch (error) {
     console.error('Update day log error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Recursive deletion helper for file explorer
+async function deleteResourceRecursively(progress, resourceId) {
+  const resource = progress.resources.find(r => r.id === resourceId);
+  if (!resource) return;
+
+  if (resource.type === 'file') {
+    if (resource.publicId) {
+      try {
+        await deleteFromCloudinary(resource.publicId);
+      } catch (cloudErr) {
+        console.error('Error deleting from Cloudinary:', cloudErr);
+      }
+    } else if (resource.url && resource.url.startsWith('/uploads/')) {
+      try {
+        const filename = resource.url.substring('/uploads/'.length);
+        const filePath = path.join(__dirname, '..', 'uploads', filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fsErr) {
+        console.error('Error deleting local file:', fsErr);
+      }
+    }
+  } else if (resource.type === 'folder') {
+    // Find all items that have this folder as parent
+    const children = progress.resources.filter(r => r.parentId === resourceId);
+    for (const child of children) {
+      await deleteResourceRecursively(progress, child.id);
+    }
+  }
+
+  // Remove it from the list
+  progress.resources = progress.resources.filter(r => r.id !== resourceId);
+}
+
+// Add a topic resource (folder, link, or file upload)
+router.post('/topics/:subjectKey/:topic/resources', [
+  authMiddleware,
+  upload.single('file')
+], async (req, res) => {
+  const { subjectKey, topic } = req.params;
+  const { id, name, type, parentId, url } = req.body;
+
+  try {
+    let progress = await TopicProgress.findOne({ userId: req.user._id, subjectKey, topic });
+    if (!progress) {
+      return res.status(404).json({ message: 'Topic progress not found' });
+    }
+
+    let finalUrl = url;
+    let publicId = undefined;
+
+    if (type === 'file' && req.file) {
+      if (isCloudinaryConfigured) {
+        try {
+          const result = await uploadFromBuffer(req.file.buffer, 'study_dash');
+          finalUrl = result.secure_url;
+          publicId = result.public_id;
+        } catch (cloudErr) {
+          console.error('Cloudinary upload failed, falling back to local:', cloudErr);
+          const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '_')}`;
+          const localPath = path.join(__dirname, '..', 'uploads', filename);
+          fs.writeFileSync(localPath, req.file.buffer);
+          finalUrl = `/uploads/${filename}`;
+        }
+      } else {
+        const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '_')}`;
+        const localPath = path.join(__dirname, '..', 'uploads', filename);
+        fs.writeFileSync(localPath, req.file.buffer);
+        finalUrl = `/uploads/${filename}`;
+      }
+    }
+
+    const newResource = {
+      id: id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: name || (req.file ? req.file.originalname : 'Untitled'),
+      type,
+      url: finalUrl,
+      publicId,
+      parentId: parentId || null
+    };
+
+    progress.resources.push(newResource);
+    await progress.save();
+
+    res.json(progress);
+  } catch (error) {
+    console.error('Add resource error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update resource (Rename name or Move parentId)
+router.patch('/topics/:subjectKey/:topic/resources/:id', authMiddleware, async (req, res) => {
+  const { subjectKey, topic, id } = req.params;
+  const { name, parentId } = req.body;
+
+  try {
+    let progress = await TopicProgress.findOne({ userId: req.user._id, subjectKey, topic });
+    if (!progress) {
+      return res.status(404).json({ message: 'Topic progress not found' });
+    }
+
+    const resourceIndex = progress.resources.findIndex(r => r.id === id);
+    if (resourceIndex === -1) {
+      return res.status(404).json({ message: 'Resource not found' });
+    }
+
+    if (name !== undefined) progress.resources[resourceIndex].name = name;
+    if (parentId !== undefined) progress.resources[resourceIndex].parentId = parentId || null;
+
+    await progress.save();
+    res.json(progress);
+  } catch (error) {
+    console.error('Update resource error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Delete resource (Recursive folder deletion)
+router.delete('/topics/:subjectKey/:topic/resources/:id', authMiddleware, async (req, res) => {
+  const { subjectKey, topic, id } = req.params;
+
+  try {
+    let progress = await TopicProgress.findOne({ userId: req.user._id, subjectKey, topic });
+    if (!progress) {
+      return res.status(404).json({ message: 'Topic progress not found' });
+    }
+
+    await deleteResourceRecursively(progress, id);
+
+    await progress.save();
+    res.json(progress);
+  } catch (error) {
+    console.error('Delete resource error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

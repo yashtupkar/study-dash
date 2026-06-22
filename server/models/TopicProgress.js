@@ -1,5 +1,14 @@
 const mongoose = require('mongoose');
 
+const ResourceSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  name: { type: String, required: true },
+  type: { type: String, enum: ['folder', 'file', 'link'], required: true },
+  url: { type: String },
+  publicId: { type: String },
+  parentId: { type: String, default: null }
+});
+
 const TopicProgressSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   subjectKey: { type: String, required: true },
@@ -17,7 +26,8 @@ const TopicProgressSchema = new mongoose.Schema({
     day: { type: Number, required: true },
     done: { type: Boolean, default: false },
     note: { type: String, default: '' }
-  }]
+  }],
+  resources: [ResourceSchema]
 }, { timestamps: true });
 
 TopicProgressSchema.index({ userId: 1, subjectKey: 1, topic: 1 }, { unique: true });

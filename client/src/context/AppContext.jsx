@@ -239,6 +239,9 @@ export const AppProvider = ({ children }) => {
       // Reload day logs since completing a daily checkbox updates day logs count
       const daysRes = await axios.get('/api/progress/days');
       setDayLogs(daysRes.data);
+
+      // Refresh today's tasks to sync checkbox status!
+      fetchTasksForDate(getLocalDateString());
       
       toast.success(`Day ${day} check updated!`);
     } catch (err) {
@@ -356,9 +359,9 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const addTodayTask = async (text, date) => {
+  const addTodayTask = async (text, date, subjectKey, topic) => {
     try {
-      const res = await axios.post('/api/today-tasks', { text, date });
+      const res = await axios.post('/api/today-tasks', { text, date, subjectKey, topic });
       setTodayTasks(prev => [...prev, res.data]);
       toast.success('Task added!');
     } catch (err) {
@@ -370,10 +373,28 @@ export const AppProvider = ({ children }) => {
   const toggleTodayTask = async (id, done) => {
     try {
       const res = await axios.patch(`/api/today-tasks/${id}`, { done });
-      setTodayTasks(prev => prev.map(t => t._id === id ? res.data : t));
+      
+      let updatedTask = res.data;
+      if (res.data.task) {
+        updatedTask = res.data.task;
+        
+        // If topicProgress was updated and returned, update local state
+        if (res.data.topicProgress) {
+          const prog = res.data.topicProgress;
+          setTopicProgress(prev => prev.map(p => 
+            p.subjectKey === prog.subjectKey && p.topic === prog.topic ? prog : p
+          ));
+        }
+
+        // Reload day logs since completing a topic updates day logs count
+        const daysRes = await axios.get('/api/progress/days');
+        setDayLogs(daysRes.data);
+      }
+      
+      setTodayTasks(prev => prev.map(t => t._id === id ? updatedTask : t));
       
       // Celebrate if all tasks are done!
-      const updatedTasks = todayTasks.map(t => t._id === id ? res.data : t);
+      const updatedTasks = todayTasks.map(t => t._id === id ? updatedTask : t);
       const allDone = updatedTasks.length > 0 && updatedTasks.every(t => t.done);
       if (allDone) {
         toast.success("🎉 All today's tasks completed! Outstanding job!");
@@ -466,6 +487,56 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const addTopicResource = async (subjectKey, topic, payload) => {
+    try {
+      const isFormData = payload instanceof FormData;
+      const headers = isFormData ? { 'Content-Type': 'multipart/form-data' } : {};
+      const res = await axios.post(`/api/progress/topics/${subjectKey}/${encodeURIComponent(topic)}/resources`, payload, { headers });
+      
+      setTopicProgress(prev => prev.map(p => 
+        p.subjectKey === subjectKey && p.topic === topic ? res.data : p
+      ));
+      toast.success('Resource added successfully!');
+      return res.data;
+    } catch (err) {
+      toast.error('Failed to add resource');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const updateTopicResource = async (subjectKey, topic, id, updates) => {
+    try {
+      const res = await axios.patch(`/api/progress/topics/${subjectKey}/${encodeURIComponent(topic)}/resources/${id}`, updates);
+      
+      setTopicProgress(prev => prev.map(p => 
+        p.subjectKey === subjectKey && p.topic === topic ? res.data : p
+      ));
+      toast.success('Resource updated.');
+      return res.data;
+    } catch (err) {
+      toast.error('Failed to update resource');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const deleteTopicResource = async (subjectKey, topic, id) => {
+    try {
+      const res = await axios.delete(`/api/progress/topics/${subjectKey}/${encodeURIComponent(topic)}/resources/${id}`);
+      
+      setTopicProgress(prev => prev.map(p => 
+        p.subjectKey === subjectKey && p.topic === topic ? res.data : p
+      ));
+      toast.success('Resource deleted.');
+      return res.data;
+    } catch (err) {
+      toast.error('Failed to delete resource');
+      console.error(err);
+      throw err;
+    }
+  };
+
   // Global Derived Stats
   const currentDay = user ? getCurrentDay(user.startDate, user.targetDays) : 1;
   const streak = dayLogs.length > 0 ? calculateStreak(dayLogs, currentDay) : 0;
@@ -504,7 +575,10 @@ export const AppProvider = ({ children }) => {
       resetProgress,
       exportProgress,
       importProgress,
-      loadAllData
+      loadAllData,
+      addTopicResource,
+      updateTopicResource,
+      deleteTopicResource
     }}>
       {children}
     </AppContext.Provider>

@@ -4,19 +4,25 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const fs = require('fs');
+const path = require('path');
 const dotenv = require('dotenv');
 
-let envConfig = {};
-if (fs.existsSync('.env')) {
-  envConfig = dotenv.parse(fs.readFileSync('.env'));
-}
+// Load environment variables
+dotenv.config();
 
 const app = express();
-const PORT = envConfig.PORT || process.env.PORT || 5000;
-const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/study-dash';
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/study-dash';
+
+// Ensure uploads folder exists for local storage fallback
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
+app.use('/uploads', express.static(uploadsDir));
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],

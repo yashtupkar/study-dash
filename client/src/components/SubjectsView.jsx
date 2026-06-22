@@ -1,8 +1,506 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { ChevronDown, ChevronUp, Lock, Search, AlertCircle, Plus, Minus, MessageSquare, CheckCircle } from 'lucide-react';
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  Lock, 
+  Search, 
+  AlertCircle, 
+  Plus, 
+  Minus, 
+  MessageSquare, 
+  CheckCircle,
+  Folder, 
+  FileText, 
+  Image as ImageIcon, 
+  Youtube, 
+  ExternalLink, 
+  ChevronRight, 
+  Upload, 
+  FolderPlus, 
+  Link2, 
+  FolderOpen, 
+  Edit2, 
+  Move, 
+  Trash2, 
+  X,
+  Loader2
+} from 'lucide-react';
 import { toast } from 'sonner';
 
+// ==========================================
+// Sub-Component: Topic Resource Explorer
+// ==========================================
+function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource, deleteTopicResource }) {
+  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newLinkLabel, setNewLinkLabel] = useState('');
+  const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renamingVal, setRenamingVal] = useState('');
+  const [movingId, setMovingId] = useState(null);
+  const [activeMediaUrl, setActiveMediaUrl] = useState(null);
+  const [activeMediaType, setActiveMediaType] = useState(null); // 'image' | 'youtube'
+  const fileInputRef = useRef(null);
+
+  const resources = progress.resources || [];
+  
+  // Filter resources for current directory
+  const currentResources = resources.filter(r => r.parentId === currentFolderId);
+  
+  // Find all folders for the "Move to..." dropdown (excluding the folder being moved)
+  const allFolders = resources.filter(r => r.type === 'folder' && r.id !== movingId);
+
+  // Helper to extract YouTube video ID and build embed link
+  const getYoutubeEmbed = (url) => {
+    if (!url) return '';
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return match && match[2].length === 11 ? `https://www.youtube.com/embed/${match[2]}` : '';
+  };
+
+  const isImageFile = (url) => {
+    if (!url) return false;
+    return /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url) || url.startsWith('data:image/');
+  };
+
+  // Helper to build breadcrumb path
+  const getBreadcrumbs = () => {
+    const crumbs = [];
+    let currentId = currentFolderId;
+    while (currentId !== null) {
+      const folder = resources.find(r => r.id === currentId);
+      if (folder) {
+        crumbs.unshift(folder);
+        currentId = folder.parentId;
+      } else {
+        break;
+      }
+    }
+    return crumbs;
+  };
+
+  const handleCreateFolder = async (e) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+    
+    // Check if name duplicate in same folder
+    const exists = currentResources.some(r => r.type === 'folder' && r.name.toLowerCase() === newFolderName.trim().toLowerCase());
+    if (exists) {
+      toast.warning('A folder with this name already exists.');
+      return;
+    }
+
+    await addTopicResource(progress.subjectKey, progress.topic, {
+      name: newFolderName.trim(),
+      type: 'folder',
+      parentId: currentFolderId || null
+    });
+    setNewFolderName('');
+  };
+
+  const handleCreateLink = async (e) => {
+    e.preventDefault();
+    if (!newLinkLabel.trim() || !newLinkUrl.trim()) return;
+
+    let url = newLinkUrl.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      url = 'https://' + url;
+    }
+
+    await addTopicResource(progress.subjectKey, progress.topic, {
+      name: newLinkLabel.trim(),
+      type: 'link',
+      url,
+      parentId: currentFolderId || null
+    });
+    setNewLinkLabel('');
+    setNewLinkUrl('');
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', 'file');
+    formData.append('name', file.name);
+    if (currentFolderId) {
+      formData.append('parentId', currentFolderId);
+    }
+
+    try {
+      await addTopicResource(progress.subjectKey, progress.topic, formData);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRenameSubmit = async (id) => {
+    if (!renamingVal.trim()) return;
+    await updateTopicResource(progress.subjectKey, progress.topic, id, { name: renamingVal.trim() });
+    setRenamingId(null);
+    setRenamingVal('');
+  };
+
+  const handleMoveSubmit = async (id, targetParentId) => {
+    const pId = targetParentId === 'root' ? null : targetParentId;
+    
+    // Cycle check: make sure we are not moving a folder into its own descendants
+    if (targetParentId !== 'root') {
+      let checkId = pId;
+      while (checkId !== null) {
+        if (checkId === id) {
+          toast.error("Cannot move a folder into itself or its sub-directories.");
+          return;
+        }
+        const parentFolder = resources.find(r => r.id === checkId);
+        checkId = parentFolder ? parentFolder.parentId : null;
+      }
+    }
+
+    await updateTopicResource(progress.subjectKey, progress.topic, id, { parentId: pId });
+    setMovingId(null);
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm('Delete this item? Deleting a folder recursively deletes all its nested items.')) {
+      await deleteTopicResource(progress.subjectKey, progress.topic, id);
+    }
+  };
+
+  const handleResourceClick = (resource) => {
+    if (resource.type === 'folder') {
+      setCurrentFolderId(resource.id);
+    } else if (resource.type === 'link') {
+      const ytEmbed = getYoutubeEmbed(resource.url);
+      if (ytEmbed) {
+        setActiveMediaUrl(ytEmbed);
+        setActiveMediaType('youtube');
+      } else {
+        window.open(resource.url, '_blank');
+      }
+    } else if (resource.type === 'file') {
+      if (isImageFile(resource.url)) {
+        setActiveMediaUrl(resource.url);
+        setActiveMediaType('image');
+      } else {
+        // PDF or others open in new tab
+        window.open(resource.url, '_blank');
+      }
+    }
+  };
+
+  const breadcrumbs = getBreadcrumbs();
+
+  return (
+    <div className="border border-border/80 bg-background/50 rounded-xl p-4 space-y-4">
+      
+      {/* File Explorer Header with Breadcrumbs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3">
+        <div className="flex items-center flex-wrap gap-1 text-xs font-semibold text-muted-foreground">
+          <button 
+            onClick={() => setCurrentFolderId(null)}
+            className="hover:text-primary transition-colors flex items-center gap-1"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span>Root Workspace</span>
+          </button>
+          
+          {breadcrumbs.map((crumb, idx) => (
+            <React.Fragment key={crumb.id}>
+              <ChevronRight className="w-3 h-3 text-muted-foreground/60" />
+              <button 
+                onClick={() => setCurrentFolderId(crumb.id)}
+                className={`hover:text-primary transition-colors ${
+                  idx === breadcrumbs.length - 1 ? 'text-foreground font-bold' : ''
+                }`}
+              >
+                {crumb.name}
+              </button>
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Upload and creation actions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          
+          {/* File Upload Input */}
+          <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 hover:bg-primary/15 border border-primary/20 text-primary rounded-lg text-xs font-bold cursor-pointer transition-all shadow-sm">
+            {isUploading ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Upload className="w-3 h-3" />
+            )}
+            <span>{isUploading ? 'Uploading...' : 'Upload File (PDF/Img)'}</span>
+            <input 
+              type="file" 
+              ref={fileInputRef}
+              disabled={isUploading}
+              onChange={handleFileUpload}
+              className="hidden" 
+              accept=".pdf,image/*"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Creation Forms Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        
+        {/* Create Folder Form */}
+        <form onSubmit={handleCreateFolder} className="flex gap-2">
+          <input 
+            type="text" 
+            placeholder="New folder name..."
+            required
+            value={newFolderName}
+            onChange={e => setNewFolderName(e.target.value)}
+            className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+          <button 
+            type="submit"
+            className="px-3 py-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 transition-all border border-border/80"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            <span>Folder</span>
+          </button>
+        </form>
+
+        {/* Add Link Form */}
+        <form onSubmit={handleCreateLink} className="flex gap-2">
+          <input 
+            type="text" 
+            placeholder="Link Title (e.g. YouTube tutorial)..."
+            required
+            value={newLinkLabel}
+            onChange={e => setNewLinkLabel(e.target.value)}
+            className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+          <input 
+            type="text" 
+            placeholder="URL..."
+            required
+            value={newLinkUrl}
+            onChange={e => setNewLinkUrl(e.target.value)}
+            className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+          <button 
+            type="submit"
+            className="px-3 py-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 transition-all border border-border/80"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            <span>Link</span>
+          </button>
+        </form>
+
+      </div>
+
+      {/* Grid of Files and Folders */}
+      {currentResources.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground text-xs border border-dashed border-border/80 rounded-lg">
+          Folder is empty. Upload PDFs/images or create sub-folders and YouTube links.
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {currentResources.map((res) => {
+            const isYT = res.type === 'link' && !!getYoutubeEmbed(res.url);
+            const isImg = res.type === 'file' && isImageFile(res.url);
+            const isPDF = res.type === 'file' && res.url && res.url.toLowerCase().endsWith('.pdf');
+
+            return (
+              <div 
+                key={res.id}
+                className="group relative border border-border rounded-xl bg-card p-3 flex flex-col justify-between hover:border-primary/40 hover:shadow-sm transition-all"
+              >
+                {/* Media Preview Box or Icon */}
+                <div 
+                  onClick={() => handleResourceClick(res)}
+                  className="aspect-video w-full rounded-lg bg-muted/50 border border-border/60 flex items-center justify-center overflow-hidden cursor-pointer relative group-hover:bg-muted/70 transition-all mb-2"
+                >
+                  {isImg ? (
+                    <img 
+                      src={res.url} 
+                      alt={res.name} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
+                    />
+                  ) : isYT ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <Youtube className="w-8 h-8 text-red-500 fill-red-500 animate-pulse" />
+                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">YouTube Video</span>
+                    </div>
+                  ) : res.type === 'folder' ? (
+                    <Folder className="w-8 h-8 text-amber-500 fill-amber-500" />
+                  ) : isPDF ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <FileText className="w-8 h-8 text-rose-500 fill-rose-500/10" />
+                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">PDF Document</span>
+                    </div>
+                  ) : res.type === 'file' ? (
+                    <FileText className="w-8 h-8 text-blue-500" />
+                  ) : (
+                    <ExternalLink className="w-8 h-8 text-muted-foreground" />
+                  )}
+                </div>
+
+                {/* Details Section */}
+                <div className="min-w-0">
+                  {renamingId === res.id ? (
+                    <div className="flex items-center gap-1 mt-1">
+                      <input 
+                        type="text"
+                        value={renamingVal}
+                        onChange={e => setRenamingVal(e.target.value)}
+                        className="w-full px-2 py-0.5 border border-primary bg-background rounded text-xs focus:outline-none"
+                      />
+                      <button 
+                        onClick={() => handleRenameSubmit(res.id)}
+                        className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded font-bold"
+                      >
+                        OK
+                      </button>
+                      <button 
+                        onClick={() => setRenamingId(null)}
+                        className="text-[9px] bg-secondary border border-border px-1.5 py-0.5 rounded text-muted-foreground font-semibold"
+                      >
+                        X
+                      </button>
+                    </div>
+                  ) : (
+                    <div 
+                      onClick={() => handleResourceClick(res)}
+                      className="text-xs font-semibold text-foreground truncate cursor-pointer hover:text-primary transition-colors pr-6 mt-1"
+                      title={res.name}
+                    >
+                      {res.name}
+                    </div>
+                  )}
+
+                  {/* Resource type detail label */}
+                  <span className="text-[8px] text-muted-foreground uppercase font-bold tracking-wider leading-none">
+                    {res.type === 'folder' ? 'Folder' : isYT ? 'YouTube' : isPDF ? 'PDF Document' : res.type}
+                  </span>
+                </div>
+
+                {/* Move Dropdown Panel */}
+                {movingId === res.id && (
+                  <div className="absolute inset-x-0 bottom-0 bg-card border-t border-border p-2 rounded-b-xl z-10 space-y-1">
+                    <span className="block text-[8px] font-bold text-muted-foreground uppercase tracking-wider">Move to:</span>
+                    <select
+                      onChange={(e) => handleMoveSubmit(res.id, e.target.value)}
+                      defaultValue=""
+                      className="w-full bg-background border border-border rounded text-[10px] p-1 text-foreground focus:outline-none"
+                    >
+                      <option value="" disabled>Select destination</option>
+                      {currentFolderId !== null && <option value="root">Root Workspace</option>}
+                      {allFolders
+                        .filter(f => f.id !== res.id && f.id !== res.parentId)
+                        .map(f => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))
+                      }
+                    </select>
+                    <button 
+                      onClick={() => setMovingId(null)}
+                      className="w-full text-center text-[8px] text-red-500 font-bold hover:underline uppercase pt-0.5"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
+                {/* Float Actions overlay */}
+                <div className="absolute right-2 bottom-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-card/90 py-0.5 px-1 rounded border border-border shadow-sm">
+                  <button 
+                    onClick={() => {
+                      setRenamingId(res.id);
+                      setRenamingVal(res.name);
+                    }}
+                    className="p-1 hover:text-primary text-muted-foreground rounded transition-colors"
+                    title="Rename"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  
+                  {res.type !== 'link' && (
+                    <button 
+                      onClick={() => setMovingId(res.id)}
+                      className="p-1 hover:text-primary text-muted-foreground rounded transition-colors"
+                      title="Move Folder"
+                    >
+                      <Move className="w-3 h-3" />
+                    </button>
+                  )}
+
+                  <button 
+                    onClick={() => handleDelete(res.id)}
+                    className="p-1 hover:text-destructive text-muted-foreground rounded transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Lightbox / Video Player Modal */}
+      {activeMediaUrl && activeMediaType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl relative">
+            <button 
+              onClick={() => {
+                setActiveMediaUrl(null);
+                setActiveMediaType(null);
+              }}
+              className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-black/60 rounded-full text-white z-10 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            
+            <div className="p-4 border-b border-border bg-muted/10">
+              <h3 className="font-bold font-outfit text-sm text-foreground truncate pr-10">
+                Media Preview & Active Learning
+              </h3>
+            </div>
+
+            <div className="bg-black flex items-center justify-center aspect-video w-full">
+              {activeMediaType === 'youtube' ? (
+                <iframe 
+                  src={activeMediaUrl}
+                  title="YouTube video player"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="w-full h-full"
+                />
+              ) : (
+                <img 
+                  src={activeMediaUrl} 
+                  alt="Cheat Sheet Zoom" 
+                  className="max-w-full max-h-[80vh] object-contain"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// ==========================================
+// Main Component: SubjectsView
+// ==========================================
 export default function SubjectsView() {
   const { 
     user, 
@@ -10,7 +508,10 @@ export default function SubjectsView() {
     subjects, 
     topicProgress, 
     toggleTopicDaily, 
-    updateTopicProgress 
+    updateTopicProgress,
+    addTopicResource,
+    updateTopicResource,
+    deleteTopicResource
   } = useApp();
 
   const [activeSubKey, setActiveSubKey] = useState('quant');
@@ -53,31 +554,6 @@ export default function SubjectsView() {
       await toggleTopicDaily(p.subjectKey, p.topic, dayNum, !currentChecked);
     } catch (e) {
       // Toast shown by context
-    }
-  };
-
-  const handleSaveTodayNote = async (p, noteText) => {
-    try {
-      await toggleTopicDaily(p.subjectKey, p.topic, currentDay, undefined, noteText);
-      // Wait, toggleTopicDaily doesn't take note parameter directly unless we support it.
-      // Let's modify toggleTopicDaily in Context to accept note text!
-      // Ah! In Context, let's see. My toggleTopicDaily function in AppContext has:
-      // toggleTopicDaily(subjectKey, topic, day, done)
-      // Wait, let's support note! Let's check how we implemented daily checks:
-      // In server/routes/progress.js:
-      // PATCH /api/progress/topics/:subjectKey/:topic/daily updates { day, done, note }
-      // So let's check AppContext.jsx:
-      // In AppContext, toggleTopicDaily is:
-      // const toggleTopicDaily = async (subjectKey, topic, day, done)
-      // Let's update toggleTopicDaily to handle both done and note. Let's see:
-      // toggleTopicDaily(subjectKey, topic, day, done, note)
-      // Wait, in my AppContext.jsx, I passed `{ day, done }` to axios.patch.
-      // Let's look at the implementation:
-      // axios.patch(`/api/progress/topics/${subjectKey}/${encodeURIComponent(topic)}/daily`, { day, done })
-      // If we want to save a note, we can pass it in the body: { day, done, note }.
-      // Let's check if my Context supports it. Ah, I should make sure we can save today's note!
-    } catch (e) {
-      console.error(e);
     }
   };
 
@@ -178,7 +654,7 @@ export default function SubjectsView() {
                     >
                       ✓
                     </button>
-                    <span className={`font-medium text-sm truncate ${p.completed ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                    <span className={`font-semibold text-sm truncate ${p.completed ? 'text-muted-foreground line-through font-normal' : 'text-foreground'}`}>
                       {p.topic}
                     </span>
                   </div>
@@ -387,7 +863,6 @@ export default function SubjectsView() {
                           placeholder="Log formulas, quick notes, or reminders for today's study..."
                           value={todayNote}
                           onChange={async (e) => {
-                            // Update note directly in context dailyChecks
                             const noteText = e.target.value;
                             await toggleTopicDaily(p.subjectKey, p.topic, currentDay, isTodayChecked, noteText);
                           }}
@@ -408,6 +883,19 @@ export default function SubjectsView() {
                         />
                       </div>
 
+                    </div>
+
+                    {/* File Explorer Resource Manager section */}
+                    <div className="space-y-1.5 border-t border-border pt-4">
+                      <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        Topic Resources & Study Files
+                      </label>
+                      <TopicResourceExplorer
+                        progress={p}
+                        addTopicResource={addTopicResource}
+                        updateTopicResource={updateTopicResource}
+                        deleteTopicResource={deleteTopicResource}
+                      />
                     </div>
 
                   </div>
