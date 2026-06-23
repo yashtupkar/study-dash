@@ -6,7 +6,8 @@ const ResourceSchema = new mongoose.Schema({
   type: { type: String, enum: ['folder', 'file', 'link'], required: true },
   url: { type: String },
   publicId: { type: String },
-  parentId: { type: String, default: null }
+  parentId: { type: String, default: null },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 });
 
 const TopicProgressSchema = new mongoose.Schema({

@@ -3,9 +3,10 @@ const router = express.Router();
 const TodayTask = require('../models/TodayTask');
 const TopicProgress = require('../models/TopicProgress');
 const DayLog = require('../models/DayLog');
+const DailyTask = require('../models/DailyTask');
 const authMiddleware = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
-const { syncTasksToDayLog } = require('../utils/syncHelpers');
+const { syncTasksToDayLog, getDateStringFromDay } = require('../utils/syncHelpers');
 
 // Helper to get local date in YYYY-MM-DD
 function getLocalDateString() {
@@ -31,12 +32,45 @@ function getCurrentDay(startDate, targetDays) {
   return current;
 }
 
-// Get tasks for a specific date
+// Get tasks for a specific date (and sync daily templates)
 router.get('/', authMiddleware, async (req, res) => {
   const date = req.query.date || getLocalDateString();
   try {
-    const tasks = await TodayTask.find({ userId: req.user._id, date });
-    res.json(tasks);
+    // 1. Fetch all templates for daily tasks
+    const templates = await DailyTask.find({ userId: req.user._id });
+    
+    // 2. Fetch existing tasks for this date
+    const existingTasks = await TodayTask.find({ userId: req.user._id, date });
+    
+    let createdNew = false;
+    for (const template of templates) {
+      const alreadyGenerated = existingTasks.some(
+        t => t.dailyTaskId && t.dailyTaskId.toString() === template._id.toString()
+      );
+      if (!alreadyGenerated) {
+        const newDaily = new TodayTask({
+          userId: req.user._id,
+          date,
+          text: template.text,
+          done: false,
+          subjectKey: template.subjectKey,
+          topic: template.topic,
+          dailyTaskId: template._id,
+          customMessage: template.customMessage,
+          isDaily: true
+        });
+        await newDaily.save();
+        createdNew = true;
+      }
+    }
+    
+    let finalTasks = existingTasks;
+    if (createdNew) {
+      await syncTasksToDayLog(req.user._id, date, req.user);
+      finalTasks = await TodayTask.find({ userId: req.user._id, date });
+    }
+    
+    res.json(finalTasks);
   } catch (error) {
     console.error('Fetch tasks error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -53,17 +87,41 @@ router.post('/', [
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { text, date, subjectKey, topic } = req.body;
-  const taskDate = date || getLocalDateString();
+  const { text, date, subjectKey, topic, isDaily, specificDayNum, customMessage } = req.body;
+  
+  let taskDate = date || getLocalDateString();
+  if (specificDayNum !== undefined && specificDayNum !== null) {
+    const computedDate = getDateStringFromDay(req.user.startDate, Number(specificDayNum));
+    if (computedDate) {
+      taskDate = computedDate;
+    }
+  }
 
   try {
+    let dailyTaskId = undefined;
+    if (isDaily) {
+      const template = new DailyTask({
+        userId: req.user._id,
+        text,
+        subjectKey: subjectKey || undefined,
+        topic: topic || undefined,
+        customMessage: customMessage || undefined
+      });
+      await template.save();
+      dailyTaskId = template._id;
+    }
+
     const newTask = new TodayTask({
       userId: req.user._id,
       date: taskDate,
       text,
       done: false,
       subjectKey: subjectKey || undefined,
-      topic: topic || undefined
+      topic: topic || undefined,
+      dailyTaskId,
+      customMessage: customMessage || undefined,
+      isDaily: isDaily ? true : false,
+      specificDayNum: (specificDayNum !== undefined && specificDayNum !== null) ? Number(specificDayNum) : undefined
     });
 
     await newTask.save();
@@ -77,7 +135,7 @@ router.post('/', [
 
 // Toggle task check or update text
 router.patch('/:id', authMiddleware, async (req, res) => {
-  const { done, text, reflection, studyTime } = req.body;
+  const { done, text, reflection, studyTime, questions, customMessage } = req.body;
   try {
     let task = await TodayTask.findOne({ _id: req.params.id, userId: req.user._id });
     if (!task) {
@@ -88,8 +146,17 @@ router.patch('/:id', authMiddleware, async (req, res) => {
     if (text !== undefined) task.text = text;
     if (reflection !== undefined) task.reflection = reflection;
     if (studyTime !== undefined) task.studyTime = studyTime;
+    if (customMessage !== undefined) task.customMessage = customMessage;
 
     await task.save();
+
+    // If it has a dailyTaskId, update the DailyTask template too!
+    if (task.dailyTaskId && (text !== undefined || customMessage !== undefined)) {
+      const updateData = {};
+      if (text !== undefined) updateData.text = text;
+      if (customMessage !== undefined) updateData.customMessage = customMessage;
+      await DailyTask.updateOne({ _id: task.dailyTaskId, userId: req.user._id }, updateData);
+    }
 
     let updatedProgress = null;
 
@@ -109,17 +176,20 @@ router.patch('/:id', authMiddleware, async (req, res) => {
         if (checkIndex > -1) {
           progress.dailyChecks[checkIndex].done = done;
           if (reflection) progress.dailyChecks[checkIndex].note = reflection;
+          if (questions !== undefined) progress.dailyChecks[checkIndex].questions = Number(questions);
         } else {
           progress.dailyChecks.push({
             day: currentDay,
             done: done,
-            note: reflection || ''
+            note: reflection || '',
+            questions: Number(questions) || 0
           });
         }
 
-        // Update overall topic completion
-        progress.completed = done;
-        progress.status = done ? 'Completed' : 'In Progress';
+        // If marked done, ensure overall status shows "In Progress" if not started
+        if (done && progress.status === 'Not Started') {
+          progress.status = 'In Progress';
+        }
 
         await progress.save();
         updatedProgress = progress;
@@ -159,10 +229,17 @@ router.patch('/:id', authMiddleware, async (req, res) => {
 // Delete task
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
-    const task = await TodayTask.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    const task = await TodayTask.findOne({ _id: req.params.id, userId: req.user._id });
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
+
+    // If it's a daily template task, delete the DailyTask template too
+    if (task.dailyTaskId) {
+      await DailyTask.deleteOne({ _id: task.dailyTaskId, userId: req.user._id });
+    }
+
+    await TodayTask.deleteOne({ _id: task._id });
     await syncTasksToDayLog(req.user._id, task.date, req.user);
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {

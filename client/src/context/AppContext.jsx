@@ -372,15 +372,20 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const addTodayTask = async (text, date, subjectKey, topic) => {
+  const addTodayTask = async (text, date, subjectKey, topic, isDaily, specificDayNum, customMessage) => {
     try {
-      const res = await axios.post('/api/today-tasks', { text, date, subjectKey, topic });
-      setTodayTasks(prev => [...prev, res.data]);
+      const payload = { text, date, subjectKey, topic };
+      if (isDaily !== undefined) payload.isDaily = isDaily;
+      if (specificDayNum !== undefined) payload.specificDayNum = specificDayNum;
+      if (customMessage !== undefined) payload.customMessage = customMessage;
+
+      const res = await axios.post('/api/today-tasks', payload);
 
       // Reload day logs to keep dashboard/weekly checklist in sync
       const daysRes = await axios.get('/api/progress/days');
       setDayLogs(daysRes.data);
 
+      await fetchTasksForDate(date);
       toast.success('Task added!');
     } catch (err) {
       toast.error('Failed to add task');
@@ -388,7 +393,21 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const toggleTodayTask = async (id, done, reflection) => {
+  const editTodayTask = async (id, text, customMessage) => {
+    try {
+      const res = await axios.patch(`/api/today-tasks/${id}`, { text, customMessage });
+      const updatedTask = res.data.task || res.data;
+      
+      setTodayTasks(prev => prev.map(t => t._id === id ? updatedTask : t));
+      toast.success('Task updated successfully');
+      return updatedTask;
+    } catch (err) {
+      toast.error('Failed to update task');
+      console.error(err);
+    }
+  };
+
+  const toggleTodayTask = async (id, done, reflection, questions) => {
     try {
       let finalStudyTime = undefined;
       if (done && id === activeStudyTaskId) {
@@ -413,6 +432,9 @@ export const AppProvider = ({ children }) => {
       }
 
       const patchPayload = { done, reflection };
+      if (questions !== undefined) {
+        patchPayload.questions = questions;
+      }
       if (finalStudyTime !== undefined) {
         patchPayload.studyTime = finalStudyTime;
       }
@@ -436,12 +458,12 @@ export const AppProvider = ({ children }) => {
       const daysRes = await axios.get('/api/progress/days');
       setDayLogs(daysRes.data);
       
-      setTodayTasks(prev => prev.map(t => t._id === id ? updatedTask : t));
+      await fetchTasksForDate(updatedTask.date);
       
       // Celebrate if all tasks are done!
       const updatedTasks = todayTasks.map(t => t._id === id ? updatedTask : t);
       const allDone = updatedTasks.length > 0 && updatedTasks.every(t => t.done);
-      if (allDone) {
+      if (allDone && done) {
         toast.success("🎉 All today's tasks completed! Outstanding job!");
       }
     } catch (err) {
@@ -452,6 +474,9 @@ export const AppProvider = ({ children }) => {
 
   const deleteTodayTask = async (id) => {
     try {
+      const taskToDelete = todayTasks.find(t => t._id === id);
+      const targetDate = taskToDelete ? taskToDelete.date : getLocalDateString();
+
       await axios.delete(`/api/today-tasks/${id}`);
       setTodayTasks(prev => prev.filter(t => t._id !== id));
 
@@ -466,10 +491,119 @@ export const AppProvider = ({ children }) => {
         localStorage.removeItem('study_active_session');
       }
 
+      await fetchTasksForDate(targetDate);
       toast.success('Task deleted.');
     } catch (err) {
       toast.error('Failed to delete task');
       console.error(err);
+    }
+  };
+
+  // Subject and Topic CRUD Context Handlers
+  const addSubject = async (name) => {
+    try {
+      const res = await axios.post('/api/subjects', { name });
+      setSubjects(prev => [...prev, res.data]);
+      // Force reload topic progress to initialize new subject's progress
+      const progRes = await axios.get('/api/progress/topics');
+      setTopicProgress(progRes.data);
+      toast.success(`Subject "${name}" added successfully!`);
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add subject');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const updateSubject = async (id, name) => {
+    try {
+      const res = await axios.patch(`/api/subjects/${id}`, { name });
+      setSubjects(prev => prev.map(s => s._id === id ? res.data : s));
+      // Reload topic progress to sync key updates
+      const progRes = await axios.get('/api/progress/topics');
+      setTopicProgress(progRes.data);
+      toast.success('Subject updated successfully.');
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update subject');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const deleteSubject = async (id) => {
+    try {
+      await axios.delete(`/api/subjects/${id}`);
+      setSubjects(prev => prev.filter(s => s._id !== id));
+      
+      const [progRes, tasksRes] = await Promise.all([
+        axios.get('/api/progress/topics'),
+        axios.get(`/api/today-tasks?date=${getLocalDateString()}`)
+      ]);
+      setTopicProgress(progRes.data);
+      setTodayTasks(tasksRes.data);
+      toast.success('Subject deleted successfully.');
+    } catch (err) {
+      toast.error('Failed to delete subject');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const addTopic = async (subjectId, topic) => {
+    try {
+      const res = await axios.post(`/api/subjects/${subjectId}/topics`, { topic });
+      setSubjects(prev => prev.map(s => s._id === subjectId ? res.data : s));
+      // Reload topic progress to initialize new topic progress
+      const progRes = await axios.get('/api/progress/topics');
+      setTopicProgress(progRes.data);
+      toast.success(`Topic "${topic}" added!`);
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add topic');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const updateTopic = async (subjectId, oldTopic, newTopic) => {
+    try {
+      const res = await axios.patch(`/api/subjects/${subjectId}/topics`, { oldTopic, newTopic });
+      setSubjects(prev => prev.map(s => s._id === subjectId ? res.data : s));
+      
+      const [progRes, tasksRes] = await Promise.all([
+        axios.get('/api/progress/topics'),
+        axios.get(`/api/today-tasks?date=${getLocalDateString()}`)
+      ]);
+      setTopicProgress(progRes.data);
+      setTodayTasks(tasksRes.data);
+      toast.success('Topic renamed.');
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to rename topic');
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const deleteTopic = async (subjectId, topicName) => {
+    try {
+      const res = await axios.delete(`/api/subjects/${subjectId}/topics/${encodeURIComponent(topicName)}`);
+      setSubjects(prev => prev.map(s => s._id === subjectId ? res.data : s));
+      
+      const [progRes, tasksRes] = await Promise.all([
+        axios.get('/api/progress/topics'),
+        axios.get(`/api/today-tasks?date=${getLocalDateString()}`)
+      ]);
+      setTopicProgress(progRes.data);
+      setTodayTasks(tasksRes.data);
+      toast.success('Topic deleted.');
+      return res.data;
+    } catch (err) {
+      toast.error('Failed to delete topic');
+      console.error(err);
+      throw err;
     }
   };
 
@@ -877,8 +1011,15 @@ export const AppProvider = ({ children }) => {
       deleteNote,
       fetchTasksForDate,
       addTodayTask,
+      editTodayTask,
       toggleTodayTask,
       deleteTodayTask,
+      addSubject,
+      updateSubject,
+      deleteSubject,
+      addTopic,
+      updateTopic,
+      deleteTopic,
       updateSettings,
       resetProgress,
       exportProgress,

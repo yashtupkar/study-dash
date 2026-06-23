@@ -3,6 +3,7 @@ const router = express.Router();
 const TopicProgress = require('../models/TopicProgress');
 const DayLog = require('../models/DayLog');
 const TodayTask = require('../models/TodayTask');
+const Subject = require('../models/Subject');
 const authMiddleware = require('../middleware/auth');
 const { syncDayLogToTasks, syncTasksToDayLog } = require('../utils/syncHelpers');
 const multer = require('multer');
@@ -32,11 +33,64 @@ function getCurrentDay(startDate, targetDays) {
   return current;
 }
 
-// Get user's topic progress
+// Get user's topic progress (and merge resources globally)
 router.get('/topics', authMiddleware, async (req, res) => {
   try {
-    const progress = await TopicProgress.find({ userId: req.user._id });
-    res.json(progress);
+    // 1. Sync subjects to make sure progress documents exist
+    const subjects = await Subject.find({});
+    const existingProgress = await TopicProgress.find({ userId: req.user._id });
+    
+    const existingMap = new Set(existingProgress.map(p => `${p.subjectKey}-${p.topic}`));
+    const newProgressList = [];
+    
+    for (const sub of subjects) {
+      for (const topic of sub.topics) {
+        const key = `${sub.key}-${topic}`;
+        if (!existingMap.has(key)) {
+          newProgressList.push({
+            userId: req.user._id,
+            subjectKey: sub.key,
+            topic: topic,
+            completed: false,
+            priority: 'Medium',
+            difficulty: 'Medium',
+            status: 'Not Started',
+            questions: 0,
+            notes: '',
+            dailyChecks: []
+          });
+        }
+      }
+    }
+    
+    if (newProgressList.length > 0) {
+      const inserted = await TopicProgress.insertMany(newProgressList);
+      existingProgress.push(...inserted);
+    }
+
+    // 2. Fetch all progress records to merge resources from all users
+    const allProgress = await TopicProgress.find({}).populate('resources.userId', 'name');
+    
+    const resourcesMap = {};
+    for (const prog of allProgress) {
+      if (prog.resources && prog.resources.length > 0) {
+        const key = `${prog.subjectKey}-${prog.topic}`;
+        if (!resourcesMap[key]) {
+          resourcesMap[key] = [];
+        }
+        resourcesMap[key].push(...prog.resources);
+      }
+    }
+
+    // 3. Merge resources into user's progress list
+    const mergedProgress = existingProgress.map(p => {
+      const key = `${p.subjectKey}-${p.topic}`;
+      const pObj = p.toObject();
+      pObj.resources = resourcesMap[key] || [];
+      return pObj;
+    });
+
+    res.json(mergedProgress);
   } catch (error) {
     console.error('Fetch topic progress error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -74,27 +128,27 @@ router.patch('/topics/:subjectKey/:topic', authMiddleware, async (req, res) => {
     if (rev3 !== undefined) progress.rev3 = rev3;
 
     await progress.save();
-    res.json(progress);
+
+    // Return with merged resources
+    const allProgressForTopic = await TopicProgress.find({ subjectKey, topic }).populate('resources.userId', 'name');
+    const allResourcesForTopic = allProgressForTopic.flatMap(p => p.resources || []);
+    
+    const pObj = progress.toObject();
+    pObj.resources = allResourcesForTopic;
+    res.json(pObj);
   } catch (error) {
     console.error('Update topic progress error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Toggle daily cell check or update note/questions. VALIDATES done toggle matches currentDay
+// Toggle daily cell check or update note/questions
 router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res) => {
   const { subjectKey, topic } = req.params;
   const { day, done, note, questions } = req.body;
 
   try {
     const currentDay = getCurrentDay(req.user.startDate, req.user.targetDays);
-
-    // Only lock done status toggling to the current active day
-    if (done !== undefined && Number(day) !== currentDay) {
-      return res.status(403).json({
-        message: `Locked — only today's cell (Day ${currentDay}) can be checked/unchecked.`
-      });
-    }
 
     let progress = await TopicProgress.findOne({
       userId: req.user._id,
@@ -107,6 +161,21 @@ router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res
     }
 
     const checkIndex = progress.dailyChecks.findIndex(c => c.day === Number(day));
+    const existingDone = checkIndex > -1 ? progress.dailyChecks[checkIndex].done : false;
+
+    // 1. Prevent editing any logs for future days
+    if (Number(day) > currentDay) {
+      return res.status(403).json({
+        message: `Cannot edit logs for future days (Day ${day} is locked).`
+      });
+    }
+
+    // 2. Only lock done status toggling to the current active day
+    if (done !== undefined && done !== existingDone && Number(day) !== currentDay) {
+      return res.status(403).json({
+        message: `Locked — only today's cell (Day ${currentDay}) can be checked/unchecked.`
+      });
+    }
 
     if (checkIndex > -1) {
       if (done !== undefined) progress.dailyChecks[checkIndex].done = done;
@@ -154,7 +223,13 @@ router.patch('/topics/:subjectKey/:topic/daily', authMiddleware, async (req, res
       await syncTasksToDayLog(req.user._id, todayDateStr, req.user);
     }
 
-    res.json(progress);
+    // Return with merged resources
+    const allProgressForTopic = await TopicProgress.find({ subjectKey, topic }).populate('resources.userId', 'name');
+    const allResourcesForTopic = allProgressForTopic.flatMap(p => p.resources || []);
+    
+    const pObj = progress.toObject();
+    pObj.resources = allResourcesForTopic;
+    res.json(pObj);
   } catch (error) {
     console.error('Update daily check error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -201,7 +276,6 @@ router.patch('/days/:day', authMiddleware, async (req, res) => {
     // If completed state was updated, sync tasks & topics progress
     if (completed !== undefined) {
       await syncDayLogToTasks(req.user._id, Number(day), completed, req.user);
-      // Reload to get updated topics count and updated fields
       dayLog = await DayLog.findOne({ userId: req.user._id, day: Number(day) });
     }
 
@@ -236,14 +310,12 @@ async function deleteResourceRecursively(progress, resourceId) {
       }
     }
   } else if (resource.type === 'folder') {
-    // Find all items that have this folder as parent
     const children = progress.resources.filter(r => r.parentId === resourceId);
     for (const child of children) {
       await deleteResourceRecursively(progress, child.id);
     }
   }
 
-  // Remove it from the list
   progress.resources = progress.resources.filter(r => r.id !== resourceId);
 }
 
@@ -291,13 +363,20 @@ router.post('/topics/:subjectKey/:topic/resources', [
       type,
       url: finalUrl,
       publicId,
-      parentId: parentId || null
+      parentId: parentId || null,
+      userId: req.user._id
     };
 
     progress.resources.push(newResource);
     await progress.save();
 
-    res.json(progress);
+    // Return with merged resources
+    const allProgressForTopic = await TopicProgress.find({ subjectKey, topic }).populate('resources.userId', 'name');
+    const allResourcesForTopic = allProgressForTopic.flatMap(p => p.resources || []);
+    
+    const pObj = progress.toObject();
+    pObj.resources = allResourcesForTopic;
+    res.json(pObj);
   } catch (error) {
     console.error('Add resource error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -324,7 +403,14 @@ router.patch('/topics/:subjectKey/:topic/resources/:id', authMiddleware, async (
     if (parentId !== undefined) progress.resources[resourceIndex].parentId = parentId || null;
 
     await progress.save();
-    res.json(progress);
+
+    // Return with merged resources
+    const allProgressForTopic = await TopicProgress.find({ subjectKey, topic }).populate('resources.userId', 'name');
+    const allResourcesForTopic = allProgressForTopic.flatMap(p => p.resources || []);
+    
+    const pObj = progress.toObject();
+    pObj.resources = allResourcesForTopic;
+    res.json(pObj);
   } catch (error) {
     console.error('Update resource error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -342,9 +428,15 @@ router.delete('/topics/:subjectKey/:topic/resources/:id', authMiddleware, async 
     }
 
     await deleteResourceRecursively(progress, id);
-
     await progress.save();
-    res.json(progress);
+
+    // Return with merged resources
+    const allProgressForTopic = await TopicProgress.find({ subjectKey, topic }).populate('resources.userId', 'name');
+    const allResourcesForTopic = allProgressForTopic.flatMap(p => p.resources || []);
+    
+    const pObj = progress.toObject();
+    pObj.resources = allResourcesForTopic;
+    res.json(pObj);
   } catch (error) {
     console.error('Delete resource error:', error);
     res.status(500).json({ message: 'Server error' });

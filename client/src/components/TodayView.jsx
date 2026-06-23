@@ -20,7 +20,8 @@ import {
   FileText,
   CalendarDays,
   Grid,
-  Info
+  Info,
+  Pencil
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -50,6 +51,7 @@ export default function TodayView() {
   const { 
     todayTasks, 
     addTodayTask, 
+    editTodayTask,
     toggleTodayTask, 
     deleteTodayTask, 
     currentDay,
@@ -60,7 +62,9 @@ export default function TodayView() {
     isStudyTimerRunning,
     startStudyTask,
     pauseStudyTask,
-    resumeStudyTask
+    resumeStudyTask,
+    user,
+    fetchTasksForDate
   } = useApp();
 
   // Task Form States
@@ -68,11 +72,22 @@ export default function TodayView() {
   const [customText, setCustomText] = useState('');
   const [selectedSubjectKey, setSelectedSubjectKey] = useState('');
   const [selectedTopic, setSelectedTopic] = useState('');
+  const [formCustomMessage, setFormCustomMessage] = useState('');
 
   // Feynman Active Recall States
   const [activeRecallTask, setActiveRecallTask] = useState(null);
   const [recallText, setRecallText] = useState('');
   const [isRecallModalOpen, setIsRecallModalOpen] = useState(false);
+  const [viewDay, setViewDay] = useState(currentDay || 1);
+  const [scheduleType, setScheduleType] = useState('today'); // 'today' | 'daily' | 'specific'
+  const [specDay, setSpecDay] = useState('');
+  const [questionsSolved, setQuestionsSolved] = useState(0);
+
+  // Task Filter and Edit States
+  const [filterType, setFilterType] = useState('all');
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editTaskText, setEditTaskText] = useState('');
+  const [editCustomMessage, setEditCustomMessage] = useState('');
 
   // Pomodoro Timer States
   const [timeLeft, setTimeLeft] = useState(1500); // 25m default (seconds)
@@ -104,6 +119,45 @@ export default function TodayView() {
     localStorage.setItem('study_habits_checklist', JSON.stringify(habits));
   }, [habits]);
 
+  // Auto-reset habits checklist at the start of a new day
+  useEffect(() => {
+    const todayStr = getLocalDateString();
+    const savedDate = localStorage.getItem('study_habits_date');
+    if (savedDate !== todayStr) {
+      localStorage.setItem('study_habits_date', todayStr);
+      localStorage.setItem('study_habits_checklist', JSON.stringify(defaultHabits));
+      setHabits(defaultHabits);
+    }
+  }, []);
+
+  // Sync tasks view with viewDay selection
+  useEffect(() => {
+    if (user?.startDate) {
+      const dateStr = getDateStringFromDay(user.startDate, viewDay);
+      fetchTasksForDate(dateStr);
+    }
+  }, [viewDay, user?.startDate]);
+
+  // Keep viewDay updated when currentDay initializes
+  useEffect(() => {
+    if (currentDay) {
+      setViewDay(currentDay);
+    }
+  }, [currentDay]);
+
+  const getDateStringFromDay = (startDate, dayNum) => {
+    if (!startDate) return '';
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const targetDate = new Date(start);
+    targetDate.setDate(start.getDate() + (dayNum - 1));
+    const offset = targetDate.getTimezoneOffset();
+    const localDate = new Date(targetDate.getTime() - (offset * 60 * 1000));
+    return localDate.toISOString().split('T')[0];
+  };
+
+  const targetDays = user?.targetDays || 60;
+
   // Set default subject and topic when subjects load
   useEffect(() => {
     if (subjects.length > 0 && !selectedSubjectKey) {
@@ -128,12 +182,16 @@ export default function TodayView() {
   // Task Submit
   const handleAddTask = (e) => {
     e.preventDefault();
-    const todayStr = getLocalDateString();
+    const todayStr = getDateStringFromDay(user?.startDate, viewDay) || getLocalDateString();
+    const isDaily = scheduleType === 'daily';
+    const specificDayNum = scheduleType === 'specific' ? parseInt(specDay) : undefined;
+    const msg = formCustomMessage.trim() || undefined;
     
     if (taskType === 'custom') {
       if (!customText.trim()) return;
-      addTodayTask(customText.trim(), todayStr);
+      addTodayTask(customText.trim(), todayStr, undefined, undefined, isDaily, specificDayNum, msg);
       setCustomText('');
+      setFormCustomMessage('');
     } else {
       if (!selectedSubjectKey || !selectedTopic) {
         toast.error('Please select a subject and a topic');
@@ -147,12 +205,13 @@ export default function TodayView() {
       
       // Check if topic task already exists for today
       const alreadyExists = todayTasks.some(t => t.subjectKey === selectedSubjectKey && t.topic === selectedTopic);
-      if (alreadyExists) {
-        toast.warning('This topic is already added to today\'s tasks!');
+      if (alreadyExists && !isDaily) {
+        toast.warning('This topic is already added to tasks for this day!');
         return;
       }
 
-      addTodayTask(taskText, todayStr, selectedSubjectKey, selectedTopic);
+      addTodayTask(taskText, todayStr, selectedSubjectKey, selectedTopic, isDaily, specificDayNum, msg);
+      setFormCustomMessage('');
     }
   };
 
@@ -161,6 +220,7 @@ export default function TodayView() {
     if (!task.done) {
       setActiveRecallTask(task);
       setRecallText('');
+      setQuestionsSolved(0);
       setIsRecallModalOpen(true);
     } else {
       toggleTodayTask(task._id, false);
@@ -177,11 +237,12 @@ export default function TodayView() {
     const reflectionText = recallText.trim();
     setIsRecallModalOpen(false);
     
-    // Toggle task in DB and save feynman reflection
-    await toggleTodayTask(activeRecallTask._id, true, reflectionText);
+    // Toggle task in DB and save feynman reflection & questions solved
+    await toggleTodayTask(activeRecallTask._id, true, reflectionText, questionsSolved);
     
     setActiveRecallTask(null);
     setRecallText('');
+    setQuestionsSolved(0);
   };
 
   // Pomodoro Timer Effects & Controls
@@ -341,6 +402,15 @@ export default function TodayView() {
     setHabits(defaultHabits);
   };
 
+  // Filtered Tasks
+  const filteredTasks = todayTasks.filter(task => {
+    if (filterType === 'all') return true;
+    if (filterType === 'daily') return task.isDaily || !!task.dailyTaskId;
+    if (filterType === 'specific') return task.specificDayNum !== undefined && task.specificDayNum !== null;
+    if (filterType === 'one-off') return !(task.isDaily || !!task.dailyTaskId) && (task.specificDayNum === undefined || task.specificDayNum === null);
+    return true;
+  });
+
   // Stats Derived
   const completedTasksCount = todayTasks.filter(t => t.done).length;
   const totalTasksCount = todayTasks.length;
@@ -387,19 +457,39 @@ export default function TodayView() {
           
           {/* Main Focus Tasks Card */}
           <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <h2 className="text-xl font-bold font-outfit tracking-tight flex items-center gap-2 mb-1">
-              <ClipboardList className="w-5 h-5 text-primary" />
-              Today's Targets Checklist
-            </h2>
-            <p className="text-xs text-muted-foreground mb-6">
-              Establish 3-5 priority study tasks for Day {currentDay}. Link syllabus topics to auto-sync syllabus progress.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl font-bold font-outfit tracking-tight flex items-center gap-2 mb-1">
+                  <ClipboardList className="w-5 h-5 text-primary" />
+                  Study Targets Checklist
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Establish 3-5 study tasks. Link syllabus topics to auto-sync syllabus progress.
+                </p>
+              </div>
+
+              {/* Day Selector */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-semibold text-muted-foreground">Viewing Day:</span>
+                <select
+                  value={viewDay}
+                  onChange={(e) => setViewDay(Number(e.target.value))}
+                  className="bg-background border border-border rounded-lg text-xs font-bold px-3 py-1.5 focus:outline-none focus:border-primary text-foreground"
+                >
+                  {Array.from({ length: targetDays }).map((_, idx) => (
+                    <option key={idx} value={idx + 1}>
+                      Day {idx + 1} {idx + 1 === currentDay ? '(Today)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             {/* Task Progress Bar */}
             {totalTasksCount > 0 && (
               <div className="mb-6 bg-muted/30 border border-border/60 p-4 rounded-xl">
                 <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground mb-1.5">
-                  <span className="uppercase tracking-wider">Today's Tasks Completion</span>
+                  <span className="uppercase tracking-wider">Day {viewDay} Tasks Completion</span>
                   <span className="text-primary font-bold">{completedTasksCount} / {totalTasksCount} ({Math.round((completedTasksCount/totalTasksCount)*100)}%)</span>
                 </div>
                 <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
@@ -434,97 +524,200 @@ export default function TodayView() {
                 </button>
               </div>
 
-              <form onSubmit={handleAddTask} className="space-y-3">
+              <form onSubmit={handleAddTask} className="space-y-4">
                 {taskType === 'custom' ? (
-                  <div className="flex gap-2">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                      Custom Task Description
+                    </label>
                     <input
                       type="text"
                       required
                       placeholder="Add custom task (e.g. Solve 50 Quant questions, revise GA notes)..."
                       value={customText}
                       onChange={(e) => setCustomText(e.target.value)}
-                      className="flex-1 px-4 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
+                      className="w-full px-4 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
                     />
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/95 transition-all text-sm flex items-center justify-center gap-1 shadow-sm shrink-0"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add</span>
-                    </button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                          Select Subject
-                        </label>
-                        <select
-                          value={selectedSubjectKey}
-                          onChange={(e) => handleSubjectChange(e.target.value)}
-                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                        >
-                          {subjects.map(s => (
-                            <option key={s.key} value={s.key}>{s.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                          Select Topic
-                        </label>
-                        <select
-                          value={selectedTopic}
-                          onChange={(e) => setSelectedTopic(e.target.value)}
-                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                        >
-                          {activeTopics.length === 0 ? (
-                            <option value="">No topics available</option>
-                          ) : (
-                            activeTopics.map((topic, idx) => {
-                              const status = getTopicStatusLabel(topic);
-                              return (
-                                <option key={idx} value={topic}>
-                                  {topic} {status ? `(${status})` : ''}
-                                </option>
-                              );
-                            })
-                          )}
-                        </select>
-                      </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                        Select Subject
+                      </label>
+                      <select
+                        value={selectedSubjectKey}
+                        onChange={(e) => handleSubjectChange(e.target.value)}
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      >
+                        {subjects.map(s => (
+                          <option key={s.key} value={s.key}>{s.name}</option>
+                        ))}
+                      </select>
                     </div>
 
-                    <div className="flex justify-end pt-1">
-                      <button
-                        type="submit"
-                        disabled={activeTopics.length === 0}
-                        className="px-4 py-2 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/95 disabled:bg-muted disabled:text-muted-foreground transition-all text-sm flex items-center justify-center gap-1 shadow-sm"
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                        Select Topic
+                      </label>
+                      <select
+                        value={selectedTopic}
+                        onChange={(e) => setSelectedTopic(e.target.value)}
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                       >
-                        <Plus className="w-4 h-4" />
-                        <span>Add Syllabus Topic</span>
-                      </button>
+                        {activeTopics.length === 0 ? (
+                          <option value="">No topics available</option>
+                        ) : (
+                          activeTopics.map((topic, idx) => {
+                            const status = getTopicStatusLabel(topic);
+                            return (
+                              <option key={idx} value={topic}>
+                                {topic} {status ? `(${status})` : ''}
+                              </option>
+                            );
+                          })
+                        )}
+                      </select>
                     </div>
                   </div>
                 )}
+
+                {/* Custom Message / Note Field */}
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                    Custom Message / Note (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Add details (e.g. Solve page 12-15, note key formulas, focus on speed)..."
+                    value={formCustomMessage}
+                    onChange={(e) => setFormCustomMessage(e.target.value)}
+                    className="w-full px-4 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
+                  />
+                </div>
+
+                {/* Day assignment / scheduler options */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 border-t border-border/40 pt-4 items-end">
+                  <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                      Task Schedule / Frequency
+                    </label>
+                    <select
+                      value={scheduleType}
+                      onChange={(e) => setScheduleType(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="today">This Day Only (Day {viewDay})</option>
+                      <option value="daily">Daily (Repeats Every Day)</option>
+                      <option value="specific">Specific Day assignment</option>
+                    </select>
+                  </div>
+
+                  {scheduleType === 'specific' ? (
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                        Assign to Day Number
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={targetDays}
+                        required
+                        placeholder="e.g. 5"
+                        value={specDay}
+                        onChange={(e) => setSpecDay(e.target.value)}
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  ) : (
+                    <div className="hidden md:block"></div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={taskType === 'topic' && activeTopics.length === 0}
+                      className="w-full sm:w-auto px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/95 disabled:bg-muted disabled:text-muted-foreground transition-all text-sm flex items-center justify-center gap-1 shadow-sm shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Target Task</span>
+                    </button>
+                  </div>
+                </div>
               </form>
             </div>
+
+            {/* Task Filters */}
+            {todayTasks.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4 border-b border-border/40 pb-3">
+                <button
+                  type="button"
+                  onClick={() => setFilterType('all')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all border ${
+                    filterType === 'all' 
+                      ? 'bg-primary border-primary text-primary-foreground shadow-sm' 
+                      : 'border-border hover:bg-muted text-muted-foreground'
+                  }`}
+                >
+                  All Tasks ({todayTasks.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('daily')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all border ${
+                    filterType === 'daily' 
+                      ? 'bg-primary border-primary text-primary-foreground shadow-sm' 
+                      : 'border-border hover:bg-muted text-muted-foreground'
+                  }`}
+                >
+                  Daily ({todayTasks.filter(t => t.isDaily || !!t.dailyTaskId).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('specific')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all border ${
+                    filterType === 'specific' 
+                      ? 'bg-primary border-primary text-primary-foreground shadow-sm' 
+                      : 'border-border hover:bg-muted text-muted-foreground'
+                  }`}
+                >
+                  Specific Day ({todayTasks.filter(t => t.specificDayNum !== undefined && t.specificDayNum !== null).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('one-off')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all border ${
+                    filterType === 'one-off' 
+                      ? 'bg-primary border-primary text-primary-foreground shadow-sm' 
+                      : 'border-border hover:bg-muted text-muted-foreground'
+                  }`}
+                >
+                  One-off ({todayTasks.filter(t => !(t.isDaily || !!t.dailyTaskId) && (t.specificDayNum === undefined || t.specificDayNum === null)).length})
+                </button>
+              </div>
+            )}
 
             {/* Today Tasks Checklist List */}
             <div className="space-y-2.5">
               {todayTasks.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground border-2 border-dashed border-border/80 rounded-xl">
+                <div className="text-center py-10 text-muted-foreground border-2 border-dashed border-border/80 rounded-xl bg-muted/5">
                   <Info className="w-6 h-6 mx-auto mb-2 text-muted-foreground/60" />
                   <p className="text-sm font-medium">No targets scheduled for today.</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Use the form above to plan your study sessions.</p>
                 </div>
+              ) : filteredTasks.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground border-2 border-dashed border-border/80 rounded-xl bg-muted/5">
+                  <Info className="w-6 h-6 mx-auto mb-2 text-muted-foreground/60" />
+                  <p className="text-sm font-medium">No tasks match this filter.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Try selecting a different option above.</p>
+                </div>
               ) : (
-                todayTasks.map(task => {
+                filteredTasks.map(task => {
                   const isTopicTask = !!task.subjectKey;
                   const subColor = isTopicTask ? subjectColors[task.subjectKey] || { bg: 'bg-muted border-border text-muted-foreground', name: 'Task' } : null;
                   const topicDetail = isTopicTask ? topicProgress.find(p => p.subjectKey === task.subjectKey && p.topic === task.topic) : null;
                   const isActiveTask = activeStudyTaskId === task._id;
+                  const isEditing = editingTaskId === task._id;
 
                   return (
                     <div 
@@ -537,147 +730,228 @@ export default function TodayView() {
                             : 'border-border hover:border-border/80 hover:bg-muted/10'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <button
-                            type="button"
-                            onClick={() => handleTaskCheckClick(task)}
-                            className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all ${
-                              task.done 
-                                ? 'bg-primary border-primary text-primary-foreground shadow-sm shadow-primary/20' 
-                                : 'border-border hover:border-primary/50 text-transparent bg-background'
-                            }`}
-                          >
-                            <span className="text-[10px] leading-none font-bold">✓</span>
-                          </button>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {isTopicTask && subColor && (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${subColor.bg}`}>
-                                  {subColor.name}
-                                </span>
-                              )}
-                              <span className={`text-sm font-semibold truncate ${task.done ? 'text-muted-foreground line-through font-medium' : 'text-foreground'}`}>
-                                {task.text}
-                              </span>
-
-                              {/* Study time badge */}
-                              {task.studyTime > 0 && !isActiveTask && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0 flex items-center gap-1">
-                                  <Timer className="w-3 h-3 text-muted-foreground/80" />
-                                  <span>{task.done ? 'Studied: ' : ''}{formatStudyDuration(task.studyTime)}</span>
-                                </span>
-                              )}
-
-                              {isActiveTask && (
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1 ${isStudyTimerRunning ? 'bg-primary/10 text-primary animate-pulse border border-primary/20' : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20'}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${isStudyTimerRunning ? 'bg-primary animate-ping' : 'bg-yellow-500'} inline-block`}></span>
-                                  <span>{isStudyTimerRunning ? 'Studying: ' : 'Paused: '}{formatTimer(activeStudySeconds)}</span>
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Extra topic badges */}
-                            {isTopicTask && topicDetail && (
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className={`text-[8px] font-bold px-1 rounded-sm uppercase tracking-wider ${
-                                  topicDetail.priority === 'High' 
-                                    ? 'bg-red-500/10 text-red-500 border border-red-500/20' 
-                                    : topicDetail.priority === 'Medium'
-                                      ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' 
-                                      : 'bg-green-500/10 text-green-500 border border-green-500/20'
-                                }`}>
-                                  {topicDetail.priority} Priority
-                                </span>
-                                <span className={`text-[8px] font-bold px-1 rounded-sm uppercase tracking-wider ${
-                                  topicDetail.difficulty === 'Hard' 
-                                    ? 'bg-purple-500/10 text-purple-500 border border-purple-500/20' 
-                                    : topicDetail.difficulty === 'Medium'
-                                      ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' 
-                                      : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
-                                }`}>
-                                  {topicDetail.difficulty}
-                                </span>
-                                <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-                                  • Synced
-                                </span>
-                              </div>
-                            )}
+                      {isEditing ? (
+                        <div className="space-y-3 p-1">
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Edit Task Description</label>
+                            <input
+                              type="text"
+                              value={editTaskText}
+                              onChange={(e) => setEditTaskText(e.target.value)}
+                              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all font-semibold"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Edit Custom Message / Note</label>
+                            <input
+                              type="text"
+                              placeholder="Optional message..."
+                              value={editCustomMessage}
+                              onChange={(e) => setEditCustomMessage(e.target.value)}
+                              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+                            />
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1 border-t border-border/40 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTaskId(null)}
+                              className="px-3 py-1.5 text-xs font-bold border border-border hover:bg-secondary text-muted-foreground rounded-lg transition-all"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!editTaskText.trim()) return;
+                                await editTodayTask(task._id, editTaskText.trim(), editCustomMessage.trim() || undefined);
+                                setEditingTaskId(null);
+                              }}
+                              className="px-3 py-1.5 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg shadow-sm transition-all"
+                            >
+                              Save Changes
+                            </button>
                           </div>
                         </div>
-
-                        <button
-                          type="button"
-                          onClick={() => deleteTodayTask(task._id)}
-                          className="p-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded-lg transition-colors ml-2 shrink-0"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Study control buttons */}
-                      {!task.done && (
-                        <div className="mt-2.5 pt-2.5 border-t border-border/40 flex flex-wrap items-center justify-between gap-2">
-                          {isActiveTask ? (
-                            <div className="flex items-center gap-2 w-full justify-between">
-                              <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
-                                <BookOpen className="w-3.5 h-3.5 text-primary" />
-                                Active Session
-                              </span>
-                              <div className="flex gap-2">
-                                {isStudyTimerRunning ? (
-                                  <button
-                                    type="button"
-                                    onClick={pauseStudyTask}
-                                    className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-yellow-500/30 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20 transition-all flex items-center gap-1"
-                                  >
-                                    <Pause className="w-3 h-3" />
-                                    Pause
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={resumeStudyTask}
-                                    className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all flex items-center gap-1"
-                                  >
-                                    <Play className="w-3 h-3" />
-                                    Resume
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleTaskCheckClick(task)}
-                                  className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded bg-primary text-primary-foreground hover:bg-primary/95 transition-all flex items-center gap-1 shadow-sm"
-                                >
-                                  <CheckCircle className="w-3 h-3" />
-                                  Complete Task
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 w-full justify-end">
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
                               <button
                                 type="button"
-                                onClick={() => startStudyTask(task._id)}
-                                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-border hover:border-primary/50 hover:bg-primary/5 text-muted-foreground hover:text-primary transition-all flex items-center gap-1"
+                                onClick={() => handleTaskCheckClick(task)}
+                                className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all ${
+                                  task.done 
+                                    ? 'bg-primary border-primary text-primary-foreground shadow-sm shadow-primary/20' 
+                                    : 'border-border hover:border-primary/50 text-transparent bg-background'
+                                }`}
                               >
-                                <Play className="w-3 h-3" />
-                                Start Studying
+                                <span className="text-[10px] leading-none font-bold">✓</span>
+                              </button>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {isTopicTask && subColor && (
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${subColor.bg}`}>
+                                      {subColor.name}
+                                    </span>
+                                  )}
+                                  
+                                  {/* Badges for Daily and Specific Day */}
+                                  {(task.isDaily || !!task.dailyTaskId) && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400 shrink-0">
+                                      Daily
+                                    </span>
+                                  )}
+                                  {task.specificDayNum !== undefined && task.specificDayNum !== null && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 shrink-0">
+                                      Day {task.specificDayNum}
+                                    </span>
+                                  )}
+
+                                  <span className={`text-sm font-semibold truncate ${task.done ? 'text-muted-foreground line-through font-medium' : 'text-foreground'}`}>
+                                    {task.text}
+                                  </span>
+
+                                  {/* Study time badge */}
+                                  {task.studyTime > 0 && !isActiveTask && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0 flex items-center gap-1">
+                                      <Timer className="w-3 h-3 text-muted-foreground/80" />
+                                      <span>{task.done ? 'Studied: ' : ''}{formatStudyDuration(task.studyTime)}</span>
+                                    </span>
+                                  )}
+
+                                  {isActiveTask && (
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1 ${isStudyTimerRunning ? 'bg-primary/10 text-primary animate-pulse border border-primary/20' : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20'}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${isStudyTimerRunning ? 'bg-primary animate-ping' : 'bg-yellow-500'} inline-block`}></span>
+                                      <span>{isStudyTimerRunning ? 'Studying: ' : 'Paused: '}{formatTimer(activeStudySeconds)}</span>
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Custom Message Display */}
+                                {task.customMessage && (
+                                  <div className="mt-1 text-[11px] text-muted-foreground font-medium border-l-2 border-primary/30 pl-2">
+                                    {task.customMessage}
+                                  </div>
+                                )}
+
+                                {/* Extra topic badges */}
+                                {isTopicTask && topicDetail && (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className={`text-[8px] font-bold px-1 rounded-sm uppercase tracking-wider ${
+                                      topicDetail.priority === 'High' 
+                                        ? 'bg-red-500/10 text-red-500 border border-red-500/20' 
+                                        : topicDetail.priority === 'Medium'
+                                          ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' 
+                                          : 'bg-green-500/10 text-green-500 border border-green-500/20'
+                                    }`}>
+                                      {topicDetail.priority} Priority
+                                    </span>
+                                    <span className={`text-[8px] font-bold px-1 rounded-sm uppercase tracking-wider ${
+                                      topicDetail.difficulty === 'Hard' 
+                                        ? 'bg-purple-500/10 text-purple-500 border border-purple-500/20' 
+                                        : topicDetail.difficulty === 'Medium'
+                                          ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' 
+                                          : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
+                                    }`}>
+                                      {topicDetail.difficulty}
+                                    </span>
+                                    <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+                                      • Synced
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 ml-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingTaskId(task._id);
+                                  setEditTaskText(task.text);
+                                  setEditCustomMessage(task.customMessage || '');
+                                }}
+                                className="p-1.5 hover:bg-secondary text-muted-foreground hover:text-foreground rounded-lg transition-all"
+                                title="Edit task"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteTodayTask(task._id)}
+                                className="p-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded-lg transition-all"
+                                title="Delete task"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                          )}
-                        </div>
-                      )}
+                          </div>
 
-                      {/* Display Feynman explanation if completed */}
-                      {task.done && task.reflection && (
-                        <div className="mt-2.5 text-xs bg-amber-500/5 dark:bg-amber-500/5 border border-amber-500/10 dark:border-amber-500/20 p-2.5 rounded-lg text-muted-foreground italic font-medium leading-relaxed font-outfit relative">
-                          <span className="absolute -top-1.5 left-3 bg-card px-1.5 text-[8px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-bold border border-amber-500/10 dark:border-amber-500/20 rounded-sm">
-                            Feynman Active Recall Card
-                          </span>
-                          "{task.reflection}"
-                        </div>
+                          {/* Study control buttons */}
+                          {!task.done && (
+                            <div className="mt-2.5 pt-2.5 border-t border-border/40 flex flex-wrap items-center justify-between gap-2">
+                              {isActiveTask ? (
+                                <div className="flex items-center gap-2 w-full justify-between">
+                                  <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                                    <BookOpen className="w-3.5 h-3.5 text-primary" />
+                                    Active Session
+                                  </span>
+                                  <div className="flex gap-2">
+                                    {isStudyTimerRunning ? (
+                                      <button
+                                        type="button"
+                                        onClick={pauseStudyTask}
+                                        className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-yellow-500/30 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20 transition-all flex items-center gap-1"
+                                      >
+                                        <Pause className="w-3 h-3" />
+                                        Pause
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={resumeStudyTask}
+                                        className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all flex items-center gap-1"
+                                      >
+                                        <Play className="w-3 h-3" />
+                                        Resume
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTaskCheckClick(task)}
+                                      className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded bg-primary text-primary-foreground hover:bg-primary/95 transition-all flex items-center gap-1 shadow-sm"
+                                    >
+                                      <CheckCircle className="w-3 h-3" />
+                                      Complete Task
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 w-full justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => startStudyTask(task._id)}
+                                    className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border border-border hover:border-primary/50 hover:bg-primary/5 text-muted-foreground hover:text-primary transition-all flex items-center gap-1"
+                                  >
+                                    <Play className="w-3 h-3" />
+                                    Start Studying
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Display Feynman explanation if completed */}
+                          {task.done && task.reflection && (
+                            <div className="mt-2.5 text-xs bg-amber-500/5 dark:bg-amber-500/5 border border-amber-500/10 dark:border-amber-500/20 p-2.5 rounded-lg text-muted-foreground italic font-medium leading-relaxed font-outfit relative">
+                              <span className="absolute -top-1.5 left-3 bg-card px-1.5 text-[8px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-bold border border-amber-500/10 dark:border-amber-500/20 rounded-sm">
+                                Feynman Active Recall Card
+                              </span>
+                              "{task.reflection}"
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   );
@@ -1025,6 +1299,25 @@ export default function TodayView() {
                   </span>
                 </div>
               </div>
+
+              {/* Show questions input if it is a topic-based task */}
+              {activeRecallTask.subjectKey && (
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                    Questions Solved Today
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={questionsSolved}
+                    onChange={(e) => setQuestionsSolved(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-bold"
+                  />
+                  <span className="block text-[9px] text-muted-foreground mt-1 px-1">
+                    Enter the number of practice questions completed for this topic study block.
+                  </span>
+                </div>
+              )}
 
               <div className="flex gap-2">
                 <button

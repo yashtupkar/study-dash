@@ -692,7 +692,13 @@ export default function SubjectsView() {
     updateTopicProgress,
     addTopicResource,
     updateTopicResource,
-    deleteTopicResource
+    deleteTopicResource,
+    addSubject,
+    updateSubject,
+    deleteSubject,
+    addTopic,
+    updateTopic,
+    deleteTopic
   } = useApp();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -701,6 +707,89 @@ export default function SubjectsView() {
   const [activeSubKey, setActiveSubKey] = useState('quant');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHeatmapDay, setSelectedHeatmapDay] = useState(null);
+
+  // Subject and Topic CRUD Handlers
+  const handleCreateSubject = async () => {
+    const name = window.prompt("Enter new subject name:");
+    if (!name || !name.trim()) return;
+    try {
+      const newSub = await addSubject(name.trim());
+      if (newSub) {
+        setActiveSubKey(newSub.key);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRenameSubject = async () => {
+    const activeSub = subjects.find(s => s.key === activeSubKey);
+    if (!activeSub) return;
+    const name = window.prompt(`Rename subject "${activeSub.name}" to:`, activeSub.name);
+    if (!name || !name.trim() || name.trim() === activeSub.name) return;
+    try {
+      const updatedSub = await updateSubject(activeSub._id, name.trim());
+      if (updatedSub) {
+        setActiveSubKey(updatedSub.key);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteSubject = async () => {
+    const activeSub = subjects.find(s => s.key === activeSubKey);
+    if (!activeSub) return;
+    if (window.confirm(`Are you absolutely sure you want to delete the subject "${activeSub.name}"? This will permanently delete all topics, topic progress, and task logs associated with it!`)) {
+      try {
+        await deleteSubject(activeSub._id);
+        const remaining = subjects.filter(s => s.key !== activeSubKey);
+        if (remaining.length > 0) {
+          setActiveSubKey(remaining[0].key);
+        } else {
+          setActiveSubKey('');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleCreateTopic = async () => {
+    const activeSub = subjects.find(s => s.key === activeSubKey);
+    if (!activeSub) return;
+    const name = window.prompt("Enter new topic name:");
+    if (!name || !name.trim()) return;
+    try {
+      await addTopic(activeSub._id, name.trim());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRenameTopic = async (oldTopicName) => {
+    const activeSub = subjects.find(s => s.key === activeSubKey);
+    if (!activeSub) return;
+    const name = window.prompt(`Rename topic "${oldTopicName}" to:`, oldTopicName);
+    if (!name || !name.trim() || name.trim() === oldTopicName) return;
+    try {
+      await updateTopic(activeSub._id, oldTopicName, name.trim());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteTopic = async (topicName) => {
+    const activeSub = subjects.find(s => s.key === activeSubKey);
+    if (!activeSub) return;
+    if (window.confirm(`Are you sure you want to delete topic "${topicName}"? This will permanently clear all its progress records, uploader resources, and daily logs!`)) {
+      try {
+        await deleteTopic(activeSub._id, topicName);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
 
   // Input states for selected day log editor
   const [localNote, setLocalNote] = useState('');
@@ -749,6 +838,10 @@ export default function SubjectsView() {
 
   const handleSaveDailyLog = async () => {
     if (!activeTopicDetail) return;
+    if (activeDetailDay > currentDay) {
+      toast.error(`Cannot edit logs for future days (Day ${activeDetailDay} is locked).`);
+      return;
+    }
     try {
       const dailyCheck = activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay);
       const isDone = dailyCheck ? dailyCheck.done : false;
@@ -829,32 +922,68 @@ export default function SubjectsView() {
       
       {/* Subject Tabs (Hidden in Details View) */}
       {!activeTopicDetail && (
-        <div className="flex border-b border-border overflow-x-auto scrollbar-none gap-2">
-          {subjects.map(sub => {
-            const isActive = activeSubKey === sub.key;
-            const stats = topicProgress.filter(t => t.subjectKey === sub.key);
-            const comp = stats.length > 0 ? Math.round((stats.filter(t => t.completed).length / stats.length) * 100) : 0;
-            return (
-              <button
-                key={sub.key}
-                onClick={() => {
-                  setActiveSubKey(sub.key);
-                  setSearchQuery('');
-                  setSearchParams({});
-                }}
-                className={`px-4 py-2.5 font-semibold text-sm border-b-2 whitespace-nowrap transition-all flex items-center gap-2 ${
-                  isActive 
-                    ? 'border-primary text-primary' 
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <span>{sub.name}</span>
-                <span className="text-[10px] bg-secondary text-muted-foreground px-1.5 py-0.5 rounded-full">
-                  {comp}%
-                </span>
-              </button>
-            );
-          })}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border overflow-x-auto scrollbar-none gap-4 pb-2 mb-4">
+          <div className="flex gap-2">
+            {subjects.map(sub => {
+              const isActive = activeSubKey === sub.key;
+              const stats = topicProgress.filter(t => t.subjectKey === sub.key);
+              const comp = stats.length > 0 ? Math.round((stats.filter(t => t.completed).length / stats.length) * 100) : 0;
+              return (
+                <button
+                  key={sub.key}
+                  onClick={() => {
+                    setActiveSubKey(sub.key);
+                    setSearchQuery('');
+                    setSearchParams({});
+                  }}
+                  className={`px-4 py-2.5 font-semibold text-sm border-b-2 whitespace-nowrap transition-all flex items-center gap-2 ${
+                    isActive 
+                      ? 'border-primary text-primary font-bold' 
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span>{sub.name}</span>
+                  <span className="text-[10px] bg-secondary text-muted-foreground px-1.5 py-0.5 rounded-full">
+                    {comp}%
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Subject Actions */}
+          <div className="flex items-center gap-1 px-4 py-1.5 bg-muted/10 rounded-lg border border-border/40 shrink-0 select-none">
+            <button
+              onClick={handleCreateSubject}
+              className="p-1.5 text-primary hover:bg-primary/10 rounded transition-all flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+              title="Add New Subject"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Subj</span>
+            </button>
+            {subjects.length > 0 && (
+              <>
+                <div className="w-[1px] h-3.5 bg-border mx-1"></div>
+                <button
+                  onClick={handleRenameSubject}
+                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-all flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+                  title="Rename Active Subject"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Rename</span>
+                </button>
+                <div className="w-[1px] h-3.5 bg-border mx-1"></div>
+                <button
+                  onClick={handleDeleteSubject}
+                  className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+                  title="Delete Active Subject"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -1030,6 +1159,13 @@ export default function SubjectsView() {
                   </div>
                 </div>
 
+                {activeDetailDay > currentDay && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400 p-2.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-fade-in">
+                    <Lock className="w-3.5 h-3.5 shrink-0" />
+                    <span>Future study day logs (Day {activeDetailDay}) are locked. You can only log progress for today or past days.</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
                   
                   {/* Daily Questions */}
@@ -1041,7 +1177,8 @@ export default function SubjectsView() {
                       <button
                         type="button"
                         onClick={() => setLocalQuestions(q => Math.max(0, q - 5))}
-                        className="px-2.5 py-1.5 hover:bg-muted text-muted-foreground border-r border-border transition-colors"
+                        disabled={activeDetailDay > currentDay}
+                        className="px-2.5 py-1.5 hover:bg-muted text-muted-foreground border-r border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -1050,12 +1187,14 @@ export default function SubjectsView() {
                         min="0"
                         value={localQuestions}
                         onChange={(e) => setLocalQuestions(parseInt(e.target.value) || 0)}
-                        className="w-full text-center bg-transparent text-sm text-foreground focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-bold"
+                        disabled={activeDetailDay > currentDay}
+                        className="w-full text-center bg-transparent text-sm text-foreground focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <button
                         type="button"
                         onClick={() => setLocalQuestions(q => q + 5)}
-                        className="px-2.5 py-1.5 hover:bg-muted text-muted-foreground border-l border-border transition-colors"
+                        disabled={activeDetailDay > currentDay}
+                        className="px-2.5 py-1.5 hover:bg-muted text-muted-foreground border-l border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -1072,7 +1211,8 @@ export default function SubjectsView() {
                       placeholder="Write formulas, key lessons or summary notes for this day..."
                       value={localNote}
                       onChange={(e) => setLocalNote(e.target.value)}
-                      className="w-full bg-background border border-border rounded-lg text-sm px-3 py-1.5 text-foreground focus:outline-none focus:border-primary h-[38px] min-h-[38px] max-h-[120px] resize-y transition-all"
+                      disabled={activeDetailDay > currentDay}
+                      className="w-full bg-background border border-border rounded-lg text-sm px-3 py-1.5 text-foreground focus:outline-none focus:border-primary h-[38px] min-h-[38px] max-h-[120px] resize-y transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -1081,7 +1221,8 @@ export default function SubjectsView() {
                 <div className="flex justify-end pt-1 border-t border-border/60">
                   <button
                     onClick={handleSaveDailyLog}
-                    className="px-4 py-1.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                    disabled={activeDetailDay > currentDay}
+                    className="px-4 py-1.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <span>Save Day {activeDetailDay} Log</span>
                   </button>
@@ -1257,15 +1398,25 @@ export default function SubjectsView() {
               </div>
             </div>
 
-            <div className="relative w-full md:w-64">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search topics..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
-              />
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <button
+                onClick={handleCreateTopic}
+                className="bg-primary text-primary-foreground font-semibold px-3 py-1.5 rounded-lg hover:bg-primary/95 transition-all text-xs flex items-center justify-center gap-1 shadow-sm shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Topic</span>
+              </button>
+
+              <div className="relative w-full md:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search topics..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-1.5 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
+                />
+              </div>
             </div>
           </div>
 
@@ -1356,6 +1507,32 @@ export default function SubjectsView() {
                         }`} title={p.topic}>
                           {p.topic}
                         </h3>
+
+                        {/* Edit and Delete Topic buttons (visible on hover) */}
+                        <div className="flex items-center gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRenameTopic(p.topic);
+                            }}
+                            className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground"
+                            title="Rename Topic"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteTopic(p.topic);
+                            }}
+                            className="p-1 hover:bg-destructive/15 rounded text-muted-foreground hover:text-destructive"
+                            title="Delete Topic"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Micro Progress Bar & Days Logged details */}

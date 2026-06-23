@@ -41,7 +41,8 @@ export default function NotesView() {
     topicProgress,
     addTopicResource,
     deleteTopicResource,
-    getResourceUrl
+    getResourceUrl,
+    user
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('materials'); // 'materials' | 'notes'
@@ -775,17 +776,26 @@ export default function NotesView() {
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center mt-4 pt-2 border-t border-border/40 text-[10px]">
-                      <span className="text-muted-foreground/80 uppercase font-bold tracking-wider font-outfit">
-                        {res.type === 'folder' ? 'Folder' : isYT ? 'YouTube' : isPDF ? 'PDF Document' : res.type}
-                      </span>
-                      <button
-                        onClick={() => handleDeleteResource(res)}
-                        className="p-1 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded transition-all flex items-center justify-center gap-0.5"
-                        title="Delete resource"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex justify-between items-center mt-4 pt-2 border-t border-t-border/40 text-[10px]">
+                      <div className="flex flex-col text-left">
+                        <span className="text-muted-foreground/80 uppercase font-bold tracking-wider font-outfit">
+                          {res.type === 'folder' ? 'Folder' : isYT ? 'YouTube' : isPDF ? 'PDF Document' : res.type}
+                        </span>
+                        {res.userId?.name && (
+                          <span className="text-[8px] text-muted-foreground/60 mt-0.5">
+                            By: {res.userId.name}
+                          </span>
+                        )}
+                      </div>
+                      {(!res.userId || res.userId === user?.id || res.userId?._id === user?.id) && (
+                        <button
+                          onClick={() => handleDeleteResource(res)}
+                          className="p-1 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded transition-all flex items-center justify-center gap-0.5"
+                          title="Delete resource"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -815,28 +825,35 @@ export default function NotesView() {
                       <span className="font-bold font-outfit text-sm text-foreground truncate" title={note.title}>
                         {note.title}
                       </span>
-                      <div className="flex shrink-0 gap-1.5">
-                        <button
-                          onClick={() => startEditingNote(note)}
-                          className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => deleteNote(note._id)}
-                          className="p-1 hover:bg-destructive/15 rounded text-muted-foreground hover:text-destructive"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {(!note.userId || note.userId === user?.id || note.userId?._id === user?.id) && (
+                        <div className="flex shrink-0 gap-1.5">
+                          <button
+                            onClick={() => startEditingNote(note)}
+                            className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => deleteNote(note._id)}
+                            className="p-1 hover:bg-destructive/15 rounded text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed line-clamp-6">
                       {note.content}
                     </p>
                   </div>
 
-                  <div className="text-[10px] text-muted-foreground/80 mt-4 text-right">
-                    Updated: {date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  <div className="flex justify-between items-center text-[10px] text-muted-foreground/80 mt-4">
+                    <span>
+                      {note.userId?.name ? `By: ${note.userId.name}` : ''}
+                    </span>
+                    <div>
+                      Updated: {date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
                   </div>
                 </div>
               );

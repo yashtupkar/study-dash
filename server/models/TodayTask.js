@@ -8,7 +8,11 @@ const TodayTaskSchema = new mongoose.Schema({
   subjectKey: { type: String },
   topic: { type: String },
   reflection: { type: String },
-  studyTime: { type: Number, default: 0 } // study time in seconds
+  studyTime: { type: Number, default: 0 }, // study time in seconds
+  dailyTaskId: { type: mongoose.Schema.Types.ObjectId, ref: 'DailyTask' },
+  customMessage: { type: String },
+  isDaily: { type: Boolean, default: false },
+  specificDayNum: { type: Number }
 }, { timestamps: true });
 
 module.exports = mongoose.model('TodayTask', TodayTaskSchema);

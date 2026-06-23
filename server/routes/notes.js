@@ -4,10 +4,10 @@ const Note = require('../models/Note');
 const authMiddleware = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
 
-// Get notes
+// Get notes (return all notes from all users, populated with uploader's name)
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const notes = await Note.find({ userId: req.user._id }).sort({ updatedAt: -1 });
+    const notes = await Note.find({}).populate('userId', 'name').sort({ updatedAt: -1 });
     res.json(notes);
   } catch (error) {
     console.error('Fetch notes error:', error);
@@ -36,6 +36,7 @@ router.post('/', [
     });
 
     await newNote.save();
+    await newNote.populate('userId', 'name');
     res.status(201).json(newNote);
   } catch (error) {
     console.error('Create note error:', error);
@@ -43,7 +44,7 @@ router.post('/', [
   }
 });
 
-// Update note
+// Update note (only allow uploader to edit)
 router.patch('/:id', [
   authMiddleware,
   body('title', 'Title is required').optional().notEmpty().trim(),
@@ -52,9 +53,14 @@ router.patch('/:id', [
   const { title, content } = req.body;
 
   try {
-    let note = await Note.findOne({ _id: req.params.id, userId: req.user._id });
+    let note = await Note.findById(req.params.id);
     if (!note) {
       return res.status(404).json({ message: 'Note not found' });
+    }
+
+    // Verify owner
+    if (note.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Unauthorized — you can only edit your own study notes.' });
     }
 
     if (title !== undefined) note.title = title;
@@ -62,6 +68,7 @@ router.patch('/:id', [
     note.updatedAt = new Date();
 
     await note.save();
+    await note.populate('userId', 'name');
     res.json(note);
   } catch (error) {
     console.error('Update note error:', error);
@@ -69,13 +76,20 @@ router.patch('/:id', [
   }
 });
 
-// Delete note
+// Delete note (only allow uploader to delete)
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
-    const note = await Note.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    const note = await Note.findById(req.params.id);
     if (!note) {
       return res.status(404).json({ message: 'Note not found' });
     }
+
+    // Verify owner
+    if (note.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Unauthorized — you can only delete your own study notes.' });
+    }
+
+    await Note.findByIdAndDelete(req.params.id);
     res.json({ message: 'Note deleted successfully' });
   } catch (error) {
     console.error('Delete note error:', error);
