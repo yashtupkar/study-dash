@@ -372,12 +372,14 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const addTodayTask = async (text, date, subjectKey, topic, isDaily, specificDayNum, customMessage) => {
+  const addTodayTask = async (text, date, subjectKey, topic, isDaily, specificDayNum, customMessage, taskType, questionCount) => {
     try {
       const payload = { text, date, subjectKey, topic };
       if (isDaily !== undefined) payload.isDaily = isDaily;
       if (specificDayNum !== undefined) payload.specificDayNum = specificDayNum;
       if (customMessage !== undefined) payload.customMessage = customMessage;
+      if (taskType !== undefined) payload.taskType = taskType;
+      if (questionCount !== undefined) payload.questionCount = questionCount;
 
       const res = await axios.post('/api/today-tasks', payload);
 

@@ -87,7 +87,7 @@ router.post('/', [
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { text, date, subjectKey, topic, isDaily, specificDayNum, customMessage } = req.body;
+  const { text, date, subjectKey, topic, isDaily, specificDayNum, customMessage, taskType, questionCount } = req.body;
   
   let taskDate = date || getLocalDateString();
   if (specificDayNum !== undefined && specificDayNum !== null) {
@@ -121,7 +121,9 @@ router.post('/', [
       dailyTaskId,
       customMessage: customMessage || undefined,
       isDaily: isDaily ? true : false,
-      specificDayNum: (specificDayNum !== undefined && specificDayNum !== null) ? Number(specificDayNum) : undefined
+      specificDayNum: (specificDayNum !== undefined && specificDayNum !== null) ? Number(specificDayNum) : undefined,
+      taskType: taskType || 'custom',
+      questionCount: questionCount ? Number(questionCount) : 0
     });
 
     await newTask.save();
@@ -171,45 +173,69 @@ router.patch('/:id', authMiddleware, async (req, res) => {
       });
 
       if (progress) {
-        // Update daily check for today
-        const checkIndex = progress.dailyChecks.findIndex(c => c.day === currentDay);
-        if (checkIndex > -1) {
-          progress.dailyChecks[checkIndex].done = done;
-          if (reflection) progress.dailyChecks[checkIndex].note = reflection;
-          if (questions !== undefined) progress.dailyChecks[checkIndex].questions = Number(questions);
-        } else {
-          progress.dailyChecks.push({
-            day: currentDay,
-            done: done,
-            note: reflection || '',
-            questions: Number(questions) || 0
-          });
+        // ── Topic task: update dailyCheck done + questions ──
+        if (task.taskType !== 'question_practice') {
+          const checkIndex = progress.dailyChecks.findIndex(c => c.day === currentDay);
+          if (checkIndex > -1) {
+            progress.dailyChecks[checkIndex].done = done;
+            if (reflection) progress.dailyChecks[checkIndex].note = reflection;
+            if (questions !== undefined) progress.dailyChecks[checkIndex].questions = Number(questions);
+          } else {
+            progress.dailyChecks.push({
+              day: currentDay,
+              done: done,
+              note: reflection || '',
+              questions: Number(questions) || 0
+            });
+          }
+
+          // If marked done, ensure overall status shows "In Progress" if not started
+          if (done && progress.status === 'Not Started') {
+            progress.status = 'In Progress';
+          }
         }
 
-        // If marked done, ensure overall status shows "In Progress" if not started
-        if (done && progress.status === 'Not Started') {
-          progress.status = 'In Progress';
+        // ── Question Practice task: ADD questions solved to dailyChecks questions ──
+        if (task.taskType === 'question_practice' && done) {
+          // Use the questions param from request (user may have edited count in modal), fall back to stored questionCount
+          const solvedCount = questions !== undefined ? Number(questions) : Number(task.questionCount || 0);
+          if (solvedCount > 0) {
+            const checkIndex = progress.dailyChecks.findIndex(c => c.day === currentDay);
+            if (checkIndex > -1) {
+              progress.dailyChecks[checkIndex].questions = (progress.dailyChecks[checkIndex].questions || 0) + solvedCount;
+              if (reflection) progress.dailyChecks[checkIndex].note = reflection;
+            } else {
+              progress.dailyChecks.push({
+                day: currentDay,
+                done: false,
+                note: reflection || '',
+                questions: solvedCount
+              });
+            }
+          }
         }
 
         await progress.save();
         updatedProgress = progress;
 
-        // Recalculate completed topics for active day
-        const allUserProgress = await TopicProgress.find({ userId: req.user._id });
-        let completedTopicsCount = 0;
-        for (const prog of allUserProgress) {
-          const dayCheck = prog.dailyChecks.find(c => c.day === currentDay);
-          if (dayCheck && dayCheck.done) {
-            completedTopicsCount++;
+        // Recalculate completed topics for active day (only for topic tasks)
+        if (task.taskType !== 'question_practice') {
+          const allUserProgress = await TopicProgress.find({ userId: req.user._id });
+          let completedTopicsCount = 0;
+          for (const prog of allUserProgress) {
+            const dayCheck = prog.dailyChecks.find(c => c.day === currentDay);
+            if (dayCheck && dayCheck.done) {
+              completedTopicsCount++;
+            }
           }
-        }
 
-        // Update DayLog topics count
-        await DayLog.findOneAndUpdate(
-          { userId: req.user._id, day: currentDay },
-          { topics: completedTopicsCount },
-          { upsert: true }
-        );
+          // Update DayLog topics count
+          await DayLog.findOneAndUpdate(
+            { userId: req.user._id, day: currentDay },
+            { topics: completedTopicsCount },
+            { upsert: true }
+          );
+        }
       }
     }
 

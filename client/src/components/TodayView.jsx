@@ -83,6 +83,18 @@ export default function TodayView() {
   const [specDay, setSpecDay] = useState('');
   const [questionsSolved, setQuestionsSolved] = useState(0);
 
+  // Question Practice task state
+  const [questionPracticeText, setQuestionPracticeText] = useState('');
+  const [questionPracticeCount, setQuestionPracticeCount] = useState(10);
+  const [qpSubjectKey, setQpSubjectKey] = useState('');
+  const [qpTopic, setQpTopic] = useState('');
+
+  // Question Practice completion modal
+  const [isQPModalOpen, setIsQPModalOpen] = useState(false);
+  const [qpModalTask, setQpModalTask] = useState(null);
+  const [qpModalCount, setQpModalCount] = useState(0);
+  const [qpModalNote, setQpModalNote] = useState('');
+
   // Task Filter and Edit States
   const [filterType, setFilterType] = useState('all');
   const [editingTaskId, setEditingTaskId] = useState(null);
@@ -166,7 +178,13 @@ export default function TodayView() {
         setSelectedTopic(subjects[0].topics[0]);
       }
     }
-  }, [subjects, selectedSubjectKey]);
+    if (subjects.length > 0 && !qpSubjectKey) {
+      setQpSubjectKey(subjects[0].key);
+      if (subjects[0].topics && subjects[0].topics.length > 0) {
+        setQpTopic(subjects[0].topics[0]);
+      }
+    }
+  }, [subjects, selectedSubjectKey, qpSubjectKey]);
 
   // Handle subject change to update topics dropdown
   const handleSubjectChange = (subjectKey) => {
@@ -176,6 +194,17 @@ export default function TodayView() {
       setSelectedTopic(sub.topics[0]);
     } else {
       setSelectedTopic('');
+    }
+  };
+
+  // Handle QP subject change
+  const handleQpSubjectChange = (subjectKey) => {
+    setQpSubjectKey(subjectKey);
+    const sub = subjects.find(s => s.key === subjectKey);
+    if (sub && sub.topics && sub.topics.length > 0) {
+      setQpTopic(sub.topics[0]);
+    } else {
+      setQpTopic('');
     }
   };
 
@@ -189,8 +218,27 @@ export default function TodayView() {
     
     if (taskType === 'custom') {
       if (!customText.trim()) return;
-      addTodayTask(customText.trim(), todayStr, undefined, undefined, isDaily, specificDayNum, msg);
+      addTodayTask(customText.trim(), todayStr, undefined, undefined, isDaily, specificDayNum, msg, 'custom', 0);
       setCustomText('');
+      setFormCustomMessage('');
+    } else if (taskType === 'question_practice') {
+      if (!questionPracticeText.trim()) return;
+      if (!qpSubjectKey || !qpTopic) {
+        toast.error('Please select a subject and a topic for the question practice task');
+        return;
+      }
+      addTodayTask(
+        questionPracticeText.trim(),
+        todayStr,
+        qpSubjectKey,
+        qpTopic,
+        isDaily,
+        specificDayNum,
+        msg,
+        'question_practice',
+        questionPracticeCount
+      );
+      setQuestionPracticeText('');
       setFormCustomMessage('');
     } else {
       if (!selectedSubjectKey || !selectedTopic) {
@@ -204,13 +252,13 @@ export default function TodayView() {
       const taskText = `Review Topic: ${selectedTopic}`;
       
       // Check if topic task already exists for today
-      const alreadyExists = todayTasks.some(t => t.subjectKey === selectedSubjectKey && t.topic === selectedTopic);
+      const alreadyExists = todayTasks.some(t => t.subjectKey === selectedSubjectKey && t.topic === selectedTopic && t.taskType === 'topic');
       if (alreadyExists && !isDaily) {
         toast.warning('This topic is already added to tasks for this day!');
         return;
       }
 
-      addTodayTask(taskText, todayStr, selectedSubjectKey, selectedTopic, isDaily, specificDayNum, msg);
+      addTodayTask(taskText, todayStr, selectedSubjectKey, selectedTopic, isDaily, specificDayNum, msg, 'topic', 0);
       setFormCustomMessage('');
     }
   };
@@ -218,6 +266,14 @@ export default function TodayView() {
   // Checkbox Toggle with Feynman Active Recall Popup
   const handleTaskCheckClick = (task) => {
     if (!task.done) {
+      // Question practice: show light modal instead of Feynman
+      if (task.taskType === 'question_practice') {
+        setQpModalTask(task);
+        setQpModalCount(task.questionCount || 0);
+        setQpModalNote('');
+        setIsQPModalOpen(true);
+        return;
+      }
       setActiveRecallTask(task);
       setRecallText('');
       setQuestionsSolved(0);
@@ -225,6 +281,17 @@ export default function TodayView() {
     } else {
       toggleTodayTask(task._id, false);
     }
+  };
+
+  // Question Practice modal submit
+  const handleQPModalSubmit = async (e) => {
+    e.preventDefault();
+    setIsQPModalOpen(false);
+    // Pass qpModalCount as the questions param — server will update TopicProgress.dailyChecks[day].questions
+    await toggleTodayTask(qpModalTask._id, true, qpModalNote.trim() || undefined, qpModalCount);
+    setQpModalTask(null);
+    setQpModalNote('');
+    setQpModalCount(0);
   };
 
   const handleRecallSubmit = async (e) => {
@@ -522,6 +589,15 @@ export default function TodayView() {
                 >
                   Syllabus Topic Task
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setTaskType('question_practice')}
+                  className={`pb-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                    taskType === 'question_practice' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  🎯 Question Practice
+                </button>
               </div>
 
               <form onSubmit={handleAddTask} className="space-y-4">
@@ -538,6 +614,70 @@ export default function TodayView() {
                       onChange={(e) => setCustomText(e.target.value)}
                       className="w-full px-4 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
                     />
+                  </div>
+                ) : taskType === 'question_practice' ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                          Subject
+                        </label>
+                        <select
+                          value={qpSubjectKey}
+                          onChange={(e) => handleQpSubjectChange(e.target.value)}
+                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        >
+                          {subjects.map(s => (
+                            <option key={s.key} value={s.key}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                          Topic
+                        </label>
+                        <select
+                          value={qpTopic}
+                          onChange={(e) => setQpTopic(e.target.value)}
+                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        >
+                          {(subjects.find(s => s.key === qpSubjectKey)?.topics || []).map((t, i) => (
+                            <option key={i} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                          Task Description
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. 20 Analogy questions, Solve RC passage..."
+                          value={questionPracticeText}
+                          onChange={(e) => setQuestionPracticeText(e.target.value)}
+                          className="w-full px-4 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                          No. of Questions
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          value={questionPracticeCount}
+                          onChange={(e) => setQuestionPracticeCount(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-bold"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      ✅ Completing this task will add <strong>{questionPracticeCount} questions</strong> to today's question count for <strong>{subjects.find(s => s.key === qpSubjectKey)?.name || qpSubjectKey} → {qpTopic}</strong>.
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -805,6 +945,11 @@ export default function TodayView() {
                                   {task.specificDayNum !== undefined && task.specificDayNum !== null && (
                                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 shrink-0">
                                       Day {task.specificDayNum}
+                                    </span>
+                                  )}
+                                  {task.taskType === 'question_practice' && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-cyan-500/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 shrink-0 flex items-center gap-0.5">
+                                      🎯 {task.questionCount}Q Practice
                                     </span>
                                   )}
 
@@ -1336,6 +1481,76 @@ export default function TodayView() {
                   className="flex-1 py-2 bg-primary hover:bg-primary/95 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground text-xs font-semibold rounded-lg shadow-sm transition-all"
                 >
                   Lock In Study Block
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Question Practice Completion Modal */}
+      {isQPModalOpen && qpModalTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border w-full max-w-md rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div>
+              <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest flex items-center gap-1">
+                🎯 Question Practice Complete
+              </span>
+              <h3 className="text-lg font-bold font-outfit text-foreground mt-1">
+                Log Your Practice Session
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Confirm how many questions you actually solved. This will be added to today's question count for <strong className="text-foreground">{subjects.find(s => s.key === qpModalTask.subjectKey)?.name || qpModalTask.subjectKey} → {qpModalTask.topic}</strong>.
+              </p>
+            </div>
+
+            <form onSubmit={handleQPModalSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                  Questions Solved
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  value={qpModalCount}
+                  onChange={(e) => setQpModalCount(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-bold"
+                />
+                <span className="block text-[9px] text-muted-foreground mt-1 px-1">
+                  Edit if you solved fewer/more than planned ({qpModalTask.questionCount} planned).
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                  Short Note (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Mostly easy, struggled with double analogy..."
+                  value={qpModalNote}
+                  onChange={(e) => setQpModalNote(e.target.value)}
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsQPModalOpen(false);
+                    setQpModalTask(null);
+                  }}
+                  className="flex-1 py-2 border border-border hover:bg-secondary text-muted-foreground text-xs font-semibold rounded-lg transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
+                >
+                  ✅ Mark Complete & Save
                 </button>
               </div>
             </form>

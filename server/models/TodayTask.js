@@ -12,7 +12,9 @@ const TodayTaskSchema = new mongoose.Schema({
   dailyTaskId: { type: mongoose.Schema.Types.ObjectId, ref: 'DailyTask' },
   customMessage: { type: String },
   isDaily: { type: Boolean, default: false },
-  specificDayNum: { type: Number }
+  specificDayNum: { type: Number },
+  taskType: { type: String, enum: ['custom', 'topic', 'question_practice'], default: 'custom' },
+  questionCount: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model('TodayTask', TodayTaskSchema);
