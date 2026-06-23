@@ -16,7 +16,8 @@ import {
   Flame,
   Target,
   Menu,
-  X
+  X,
+  Award
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -31,6 +32,7 @@ export default function Sidebar() {
     { id: 'planner', path: '/planner', name: 'N-Day Planner', icon: CalendarDays },
     { id: 'revision', path: '/revision', name: 'Revision (R1-R3)', icon: RefreshCw },
     { id: 'mocks', path: '/mocks', name: 'Mock Tests', icon: LineChart },
+    { id: 'quizzes', path: '/quizzes', name: 'Topic Tests', icon: Award },
     { id: 'heatmap', path: '/heatmap', name: 'Activity Heatmap', icon: Grid },
     { id: 'stats', path: '/stats', name: 'Statistics', icon: BarChart3 },
     { id: 'notes', path: '/notes', name: 'Study Material', icon: FileText },

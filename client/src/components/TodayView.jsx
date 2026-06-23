@@ -21,9 +21,12 @@ import {
   CalendarDays,
   Grid,
   Info,
-  Pencil
+  Pencil,
+  Award,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import QuizInterface from './QuizInterface';
 
 const subjectColors = {
   quant: { bg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400', name: 'Quant' },
@@ -64,7 +67,9 @@ export default function TodayView() {
     pauseStudyTask,
     resumeStudyTask,
     user,
-    fetchTasksForDate
+    fetchTasksForDate,
+    isGeneratingQuiz,
+    generateQuiz
   } = useApp();
 
   // Task Form States
@@ -82,6 +87,11 @@ export default function TodayView() {
   const [scheduleType, setScheduleType] = useState('today'); // 'today' | 'daily' | 'specific'
   const [specDay, setSpecDay] = useState('');
   const [questionsSolved, setQuestionsSolved] = useState(0);
+
+  // AI Quiz States
+  const [postCompletionTask, setPostCompletionTask] = useState(null);
+  const [generatedQuizId, setGeneratedQuizId] = useState(null);
+  const [showTestPrompt, setShowTestPrompt] = useState(false);
 
   // Task Filter and Edit States
   const [filterType, setFilterType] = useState('all');
@@ -237,9 +247,22 @@ export default function TodayView() {
     const reflectionText = recallText.trim();
     setIsRecallModalOpen(false);
     
+    const taskSubject = activeRecallTask.subjectKey;
+    const taskTopic = activeRecallTask.topic;
+    const hasTopic = !!(taskSubject && taskTopic);
+
     // Toggle task in DB and save feynman reflection & questions solved
     await toggleTodayTask(activeRecallTask._id, true, reflectionText, questionsSolved);
     
+    if (hasTopic) {
+      setPostCompletionTask({
+        subjectKey: taskSubject,
+        topic: taskTopic,
+        reflection: reflectionText
+      });
+      setShowTestPrompt(true);
+    }
+
     setActiveRecallTask(null);
     setRecallText('');
     setQuestionsSolved(0);
@@ -1341,6 +1364,85 @@ export default function TodayView() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Test Generation Prompt Modal */}
+      {showTestPrompt && postCompletionTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border w-full max-w-md rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div>
+              <span className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                Active Test Evaluation
+              </span>
+              <h3 className="text-lg font-bold font-outfit text-foreground mt-1">
+                Verify Your Understanding
+              </h3>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                You completed learning <strong className="text-foreground">"{postCompletionTask.topic}"</strong>.
+                Would you like to generate a practice MCQ test of 15 questions on this topic using your local Ollama AI model to test your understanding?
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTestPrompt(false);
+                  setPostCompletionTask(null);
+                }}
+                className="flex-1 py-2 border border-border hover:bg-secondary text-muted-foreground text-xs font-semibold rounded-lg transition-all"
+              >
+                No, Thanks
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const quiz = await generateQuiz(
+                    postCompletionTask.subjectKey,
+                    postCompletionTask.topic,
+                    postCompletionTask.reflection
+                  );
+                  if (quiz) {
+                    setGeneratedQuizId(quiz._id);
+                  }
+                  setShowTestPrompt(false);
+                }}
+                className="flex-1 py-2 bg-primary hover:bg-primary/95 text-primary-foreground text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-1"
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>Generate Test</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ollama Generating Loading Overlay */}
+      {isGeneratingQuiz && postCompletionTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4">
+          <div className="bg-card border border-border w-full max-w-sm rounded-2xl p-8 flex flex-col items-center justify-center space-y-4 shadow-2xl text-center">
+            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <div>
+              <h3 className="font-bold text-base text-foreground font-outfit">Creating Practice Test...</h3>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                Local Ollama AI model is generating 15 questions for <strong className="text-foreground">"{postCompletionTask.topic}"</strong> based on your reflection. This may take 15-30 seconds.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quiz generated and ready to start */}
+      {generatedQuizId && (
+        <QuizInterface 
+          quizId={generatedQuizId}
+          mode="take"
+          onClose={() => {
+            setGeneratedQuizId(null);
+            setPostCompletionTask(null);
+          }}
+        />
       )}
 
     </div>

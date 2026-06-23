@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const ResourceSchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { type: String, required: true },
-  type: { type: String, enum: ['folder', 'file', 'link'], required: true },
+  type: { type: String, enum: ['folder', 'file', 'link', 'quiz'], required: true },
   url: { type: String },
   publicId: { type: String },
   parentId: { type: String, default: null },

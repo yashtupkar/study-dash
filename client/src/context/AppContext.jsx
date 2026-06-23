@@ -80,6 +80,8 @@ export const AppProvider = ({ children }) => {
   const [mockTests, setMockTests] = useState([]);
   const [todayTasks, setTodayTasks] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [quizAttempts, setQuizAttempts] = useState([]);
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
 
   // Study Timer States
   const [activeStudyTaskId, setActiveStudyTaskId] = useState(null);
@@ -162,19 +164,21 @@ export const AppProvider = ({ children }) => {
       setMockTests([]);
       setTodayTasks([]);
       setNotes([]);
+      setQuizAttempts([]);
     }
   }, [user?.id]);
 
   const loadAllData = async () => {
     setDataLoading(true);
     try {
-      const [subs, prog, days, mocks, tasks, notesRes] = await Promise.all([
+      const [subs, prog, days, mocks, tasks, notesRes, attemptsRes] = await Promise.all([
         axios.get('/api/subjects'),
         axios.get('/api/progress/topics'),
         axios.get('/api/progress/days'),
         axios.get('/api/mocks'),
         axios.get(`/api/today-tasks?date=${getLocalDateString()}`),
-        axios.get('/api/notes')
+        axios.get('/api/notes'),
+        axios.get('/api/quizzes/attempts')
       ]);
 
       setSubjects(subs.data);
@@ -183,6 +187,7 @@ export const AppProvider = ({ children }) => {
       setMockTests(mocks.data);
       setTodayTasks(tasks.data);
       setNotes(notesRes.data);
+      setQuizAttempts(attemptsRes.data);
     } catch (error) {
       console.error('Error loading study dashboard data:', error);
       toast.error('Failed to load study data');
@@ -962,6 +967,78 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const generateQuiz = async (subjectKey, topic, reflection) => {
+    setIsGeneratingQuiz(true);
+    try {
+      const res = await axios.post('/api/quizzes/generate', { subjectKey, topic, reflection });
+      
+      // Update local TopicProgress (since generation updates resources!)
+      const progRes = await axios.get('/api/progress/topics');
+      setTopicProgress(progRes.data);
+      
+      toast.success(res.data.message || 'AI MCQ Quiz generated successfully!');
+      return res.data.quiz;
+    } catch (err) {
+      const errMsg = err.response?.data?.message || err.response?.data?.details || 'Failed to generate quiz. Check if your local Ollama server is running.';
+      toast.error(errMsg, { duration: 6000 });
+      console.error(err);
+      return null;
+    } finally {
+      setIsGeneratingQuiz(false);
+    }
+  };
+
+  const submitQuiz = async (quizId, answers, timeTaken) => {
+    try {
+      const res = await axios.post(`/api/quizzes/${quizId}/submit`, { answers, timeTaken });
+      
+      // Add new attempt to local state
+      setQuizAttempts(prev => [res.data.attempt, ...prev]);
+      
+      // Refresh topic progress since solving questions increments questions count
+      const progRes = await axios.get('/api/progress/topics');
+      setTopicProgress(progRes.data);
+      
+      toast.success('Test submitted successfully!');
+      return res.data;
+    } catch (err) {
+      toast.error('Failed to submit test results');
+      console.error(err);
+      return null;
+    }
+  };
+
+  const fetchQuizAttempts = async () => {
+    try {
+      const res = await axios.get('/api/quizzes/attempts');
+      setQuizAttempts(res.data);
+    } catch (err) {
+      console.error('Failed to fetch quiz attempts:', err);
+    }
+  };
+
+  const fetchQuiz = async (quizId, mode = 'exam') => {
+    try {
+      const res = await axios.get(`/api/quizzes/${quizId}?mode=${mode}`);
+      return res.data;
+    } catch (err) {
+      toast.error('Failed to load quiz details');
+      console.error(err);
+      return null;
+    }
+  };
+
+  const deleteQuizAttempt = async (attemptId) => {
+    try {
+      await axios.delete(`/api/quizzes/attempts/${attemptId}`);
+      setQuizAttempts(prev => prev.filter(a => a._id !== attemptId));
+      toast.success('Attempt deleted.');
+    } catch (err) {
+      toast.error('Failed to delete attempt');
+      console.error(err);
+    }
+  };
+
   const getResourceUrl = (url) => {
     if (!url) return '';
     if (/^https?:\/\//i.test(url) || url.startsWith('data:')) {
@@ -1028,7 +1105,14 @@ export const AppProvider = ({ children }) => {
       addTopicResource,
       updateTopicResource,
       deleteTopicResource,
-      getResourceUrl
+      getResourceUrl,
+      quizAttempts,
+      isGeneratingQuiz,
+      generateQuiz,
+      submitQuiz,
+      fetchQuizAttempts,
+      fetchQuiz,
+      deleteQuizAttempt
     }}>
       {children}
     </AppContext.Provider>

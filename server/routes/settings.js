@@ -6,11 +6,13 @@ const DayLog = require('../models/DayLog');
 const MockTest = require('../models/MockTest');
 const Note = require('../models/Note');
 const TodayTask = require('../models/TodayTask');
+const Quiz = require('../models/Quiz');
+const QuizAttempt = require('../models/QuizAttempt');
 const authMiddleware = require('../middleware/auth');
 
 // PATCH /api/settings
 router.patch('/settings', authMiddleware, async (req, res) => {
-  const { targetDays, startDate } = req.body;
+  const { targetDays, startDate, exam, ollamaUrl, ollamaModel } = req.body;
 
   try {
     const user = await User.findById(req.user._id);
@@ -19,6 +21,9 @@ router.patch('/settings', authMiddleware, async (req, res) => {
     }
 
     if (startDate !== undefined) user.startDate = new Date(startDate);
+    if (exam !== undefined) user.exam = exam;
+    if (ollamaUrl !== undefined) user.ollamaUrl = ollamaUrl;
+    if (ollamaModel !== undefined) user.ollamaModel = ollamaModel;
     
     if (targetDays !== undefined && Number(targetDays) > 0) {
       const oldTarget = user.targetDays;
@@ -55,7 +60,10 @@ router.patch('/settings', authMiddleware, async (req, res) => {
       name: user.name,
       email: user.email,
       targetDays: user.targetDays,
-      startDate: user.startDate
+      startDate: user.startDate,
+      exam: user.exam,
+      ollamaUrl: user.ollamaUrl,
+      ollamaModel: user.ollamaModel
     });
   } catch (error) {
     console.error('Update settings error:', error);
@@ -74,6 +82,8 @@ router.get('/export', authMiddleware, async (req, res) => {
     const mockTests = await MockTest.find({ userId }).sort({ date: 1 });
     const notes = await Note.find({ userId }).sort({ updatedAt: -1 });
     const todayTasks = await TodayTask.find({ userId });
+    const quizzes = await Quiz.find({ userId });
+    const quizAttempts = await QuizAttempt.find({ userId });
 
     res.json({
       user,
@@ -81,7 +91,9 @@ router.get('/export', authMiddleware, async (req, res) => {
       dayLogs,
       mockTests,
       notes,
-      todayTasks
+      todayTasks,
+      quizzes,
+      quizAttempts
     });
   } catch (error) {
     console.error('Export error:', error);
@@ -91,7 +103,7 @@ router.get('/export', authMiddleware, async (req, res) => {
 
 // POST /api/import
 router.post('/import', authMiddleware, async (req, res) => {
-  const { user, topicProgress, dayLogs, mockTests, notes, todayTasks } = req.body;
+  const { user, topicProgress, dayLogs, mockTests, notes, todayTasks, quizzes, quizAttempts } = req.body;
 
   if (!topicProgress || !dayLogs) {
     return res.status(400).json({ message: 'Invalid import format. Check file content.' });
@@ -105,6 +117,9 @@ router.post('/import', authMiddleware, async (req, res) => {
       const u = await User.findById(userId);
       if (user.targetDays !== undefined) u.targetDays = Number(user.targetDays);
       if (user.startDate !== undefined) u.startDate = new Date(user.startDate);
+      if (user.exam !== undefined) u.exam = user.exam;
+      if (user.ollamaUrl !== undefined) u.ollamaUrl = user.ollamaUrl;
+      if (user.ollamaModel !== undefined) u.ollamaModel = user.ollamaModel;
       await u.save();
     }
 
@@ -114,6 +129,8 @@ router.post('/import', authMiddleware, async (req, res) => {
     await MockTest.deleteMany({ userId });
     await Note.deleteMany({ userId });
     await TodayTask.deleteMany({ userId });
+    await Quiz.deleteMany({ userId });
+    await QuizAttempt.deleteMany({ userId });
 
     // 3. Import new records
     if (Array.isArray(topicProgress)) {
@@ -181,6 +198,35 @@ router.post('/import', authMiddleware, async (req, res) => {
       await TodayTask.insertMany(preparedTasks);
     }
 
+    if (Array.isArray(quizzes)) {
+      const preparedQuizzes = quizzes.map(q => ({
+        _id: q._id,
+        userId,
+        subjectKey: q.subjectKey,
+        topic: q.topic,
+        exam: q.exam,
+        questions: q.questions
+      }));
+      await Quiz.insertMany(preparedQuizzes);
+    }
+
+    if (Array.isArray(quizAttempts)) {
+      const preparedAttempts = quizAttempts.map(a => ({
+        _id: a._id,
+        userId,
+        quizId: a.quizId,
+        subjectKey: a.subjectKey,
+        topic: a.topic,
+        score: a.score,
+        totalQuestions: a.totalQuestions,
+        accuracy: a.accuracy,
+        timeTaken: a.timeTaken,
+        answers: a.answers,
+        date: a.date || new Date()
+      }));
+      await QuizAttempt.insertMany(preparedAttempts);
+    }
+
     const updatedUser = await User.findById(userId);
     res.json({
       message: 'Data imported successfully',
@@ -189,7 +235,10 @@ router.post('/import', authMiddleware, async (req, res) => {
         name: updatedUser.name,
         email: updatedUser.email,
         targetDays: updatedUser.targetDays,
-        startDate: updatedUser.startDate
+        startDate: updatedUser.startDate,
+        exam: updatedUser.exam,
+        ollamaUrl: updatedUser.ollamaUrl,
+        ollamaModel: updatedUser.ollamaModel
       }
     });
   } catch (error) {
@@ -207,6 +256,8 @@ router.delete('/reset', authMiddleware, async (req, res) => {
     await MockTest.deleteMany({ userId });
     await Note.deleteMany({ userId });
     await TodayTask.deleteMany({ userId });
+    await Quiz.deleteMany({ userId });
+    await QuizAttempt.deleteMany({ userId });
 
     // Reset topic progresses
     await TopicProgress.updateMany(
@@ -238,12 +289,15 @@ router.delete('/reset', authMiddleware, async (req, res) => {
       }
     );
 
-    // Reset user targetDays to 60 and startDate to today midnight
+    // Reset user settings back to default values
     const user = await User.findById(userId);
     user.targetDays = 60;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     user.startDate = today;
+    user.exam = 'SSC CGL & Coal India';
+    user.ollamaUrl = 'http://localhost:11434';
+    user.ollamaModel = 'qwen2.5:0.5b';
     await user.save();
 
     res.json({
@@ -253,7 +307,10 @@ router.delete('/reset', authMiddleware, async (req, res) => {
         name: user.name,
         email: user.email,
         targetDays: user.targetDays,
-        startDate: user.startDate
+        startDate: user.startDate,
+        exam: user.exam,
+        ollamaUrl: user.ollamaUrl,
+        ollamaModel: user.ollamaModel
       }
     });
   } catch (error) {

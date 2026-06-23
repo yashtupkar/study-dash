@@ -47,6 +47,7 @@ app.use('/api/progress', require('./routes/progress'));
 app.use('/api/mocks', require('./routes/mocks'));
 app.use('/api/notes', require('./routes/notes'));
 app.use('/api/today-tasks', require('./routes/tasks'));
+app.use('/api/quizzes', require('./routes/quizzes'));
 app.use('/api', require('./routes/settings'));
 
 app.get('/', (req, res) => {

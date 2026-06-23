@@ -14,6 +14,7 @@ import HeatmapView from './components/HeatmapView';
 import StatsView from './components/StatsView';
 import NotesView from './components/NotesView';
 import SettingsView from './components/SettingsView';
+import QuizzesView from './components/QuizzesView';
 import { Loader2, FileText, Download, X } from 'lucide-react';
 
 function Header() {
@@ -29,6 +30,7 @@ function Header() {
       case '/planner': return 'N-Day Planner Logs';
       case '/revision': return 'Revision Tracker';
       case '/mocks': return 'Mock Tests Performance';
+      case '/quizzes': return 'Topic Tests Performance';
       case '/heatmap': return 'Study Heatmap';
       case '/stats': return 'Study Statistics';
       case '/notes': return 'Study Material Hub';
@@ -96,6 +98,7 @@ function DashboardShell() {
               <Route path="/planner" element={<PlannerView />} />
               <Route path="/revision" element={<RevisionView />} />
               <Route path="/mocks" element={<MocksView />} />
+              <Route path="/quizzes" element={<QuizzesView />} />
               <Route path="/heatmap" element={<HeatmapView />} />
               <Route path="/stats" element={<StatsView />} />
               <Route path="/notes" element={<NotesView />} />

@@ -21,6 +21,9 @@ export default function SettingsView() {
   );
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [loading, setLoading] = useState(false);
+  const [exam, setExam] = useState(user?.exam || 'SSC CGL & Coal India');
+  const [ollamaUrl, setOllamaUrl] = useState(user?.ollamaUrl || 'http://localhost:11434');
+  const [ollamaModel, setOllamaModel] = useState(user?.ollamaModel || 'qwen2.5:0.5b');
 
   // Helper: Format start date into YYYY-MM-DD
   React.useEffect(() => {
@@ -32,6 +35,9 @@ export default function SettingsView() {
       setStartDate(`${year}-${month}-${day}`);
     }
     if (user?.targetDays) setTargetDays(user.targetDays);
+    if (user?.exam) setExam(user.exam);
+    if (user?.ollamaUrl) setOllamaUrl(user.ollamaUrl);
+    if (user?.ollamaModel) setOllamaModel(user.ollamaModel);
     setTheme(localStorage.getItem('theme') || 'light');
   }, [user]);
 
@@ -40,7 +46,10 @@ export default function SettingsView() {
     setLoading(true);
     const success = await updateSettings({
       targetDays: Number(targetDays),
-      startDate: new Date(startDate)
+      startDate: new Date(startDate),
+      exam,
+      ollamaUrl,
+      ollamaModel
     });
     setLoading(false);
   };
@@ -152,6 +161,64 @@ export default function SettingsView() {
             <span className="text-[10px] text-muted-foreground mt-1 block">
               e.g., 30, 45, 60, 90. Adapts heatmap and daily checks.
             </span>
+          </div>
+        </div>
+
+        {/* AI & Ollama Configuration */}
+        <h3 className="font-bold text-sm font-outfit uppercase tracking-widest text-muted-foreground pt-4 pb-2 border-b border-border/40">
+          AI & MCQ Quiz Configurations
+        </h3>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+              Target Exam (For AI Quiz Context)
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. SSC CGL, GATE, UPSC"
+              value={exam}
+              onChange={(e) => setExam(e.target.value)}
+              className="w-full bg-background border border-border rounded-lg text-sm px-3 py-2 text-foreground focus:outline-none focus:border-primary"
+            />
+            <span className="text-[10px] text-muted-foreground mt-1 block">
+              MCQs will be generated specific to this exam's syllabus and difficulty pattern.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                Local Ollama Endpoint URL
+              </label>
+              <input
+                type="text"
+                required
+                value={ollamaUrl}
+                onChange={(e) => setOllamaUrl(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg text-sm px-3 py-2 text-foreground focus:outline-none focus:border-primary"
+              />
+              <span className="text-[10px] text-muted-foreground mt-1 block">
+                Make sure Ollama is running on this port locally.
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                Ollama Model Name
+              </label>
+              <input
+                type="text"
+                required
+                value={ollamaModel}
+                onChange={(e) => setOllamaModel(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg text-sm px-3 py-2 text-foreground focus:outline-none focus:border-primary"
+              />
+              <span className="text-[10px] text-muted-foreground mt-1 block">
+                Model must be pre-pulled (e.g. <code>llama3</code>, <code>mistral</code>, <code>llama3.2</code>).
+              </span>
+            </div>
           </div>
         </div>
 

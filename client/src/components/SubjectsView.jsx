@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CameraCaptureModal from './CameraCaptureModal';
+import QuizInterface from './QuizInterface';
 
 // ==========================================
 // Sub-Component: Topic Resource Explorer
@@ -55,6 +56,7 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const fileInputRef = useRef(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [activeQuizId, setActiveQuizId] = useState(null);
 
   const handleCameraCapture = async (file) => {
     setIsUploading(true);
@@ -264,6 +266,8 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
         // PDF or others open in new tab
         window.open(fullUrl, '_blank');
       }
+    } else if (resource.type === 'quiz') {
+      setActiveQuizId(resource.url);
     }
   };
 
@@ -432,6 +436,11 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
                       <FileText className="w-8 h-8 text-rose-500 fill-rose-500/10" />
                       <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">PDF Document</span>
                     </div>
+                  ) : res.type === 'quiz' ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <Award className="w-8 h-8 text-indigo-500 fill-indigo-500/10 animate-pulse" />
+                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">AI Quiz</span>
+                    </div>
                   ) : res.type === 'file' ? (
                     <FileText className="w-8 h-8 text-blue-500" />
                   ) : (
@@ -474,7 +483,7 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
 
                   {/* Resource type detail label */}
                   <span className="text-[8px] text-muted-foreground uppercase font-bold tracking-wider leading-none">
-                    {res.type === 'folder' ? 'Folder' : isYT ? 'YouTube' : isPDF ? 'PDF Document' : res.type}
+                    {res.type === 'folder' ? 'Folder' : res.type === 'quiz' ? 'AI Quiz' : isYT ? 'YouTube' : isPDF ? 'PDF Document' : res.type}
                   </span>
                 </div>
 
@@ -667,6 +676,14 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
             </div>
           </div>
         )
+      )}
+
+      {activeQuizId && (
+        <QuizInterface 
+          quizId={activeQuizId} 
+          mode="take" 
+          onClose={() => setActiveQuizId(null)} 
+        />
       )}
 
       <CameraCaptureModal 

@@ -9,7 +9,10 @@ const UserSchema = new mongoose.Schema({
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
-  }}
+  }},
+  exam: { type: String, default: 'SSC CGL & Coal India' },
+  ollamaUrl: { type: String, default: 'http://localhost:11434' },
+  ollamaModel: { type: String, default: 'qwen2.5:0.5b' }
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', UserSchema);
