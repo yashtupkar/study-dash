@@ -14,6 +14,7 @@ import HeatmapView from './components/HeatmapView';
 import StatsView from './components/StatsView';
 import NotesView from './components/NotesView';
 import SettingsView from './components/SettingsView';
+import StudyPlanView from './components/StudyPlanView';
 import ActiveStudyCard from './components/ActiveStudyCard';
 import FeynmanRecallModal from './components/FeynmanRecallModal';
 import TaskCompletionModal from './components/TaskCompletionModal';
@@ -35,6 +36,7 @@ function Header() {
       case '/heatmap': return 'Study Heatmap';
       case '/stats': return 'Study Statistics';
       case '/notes': return 'Study Material Hub';
+      case '/study-plan': return 'Study Plan';
       case '/settings': return 'Settings';
       default: return 'Study Dashboard';
     }
@@ -102,6 +104,7 @@ function DashboardShell() {
               <Route path="/heatmap" element={<HeatmapView />} />
               <Route path="/stats" element={<StatsView />} />
               <Route path="/notes" element={<NotesView />} />
+              <Route path="/study-plan" element={<StudyPlanView />} />
               <Route path="/settings" element={<SettingsView />} />
               {/* Catch all redirect to / */}
               <Route path="*" element={<Navigate to="/" replace />} />

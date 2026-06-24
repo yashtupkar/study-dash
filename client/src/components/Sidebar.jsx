@@ -16,7 +16,8 @@ import {
   Flame,
   Target,
   Menu,
-  X
+  X,
+  ClipboardList
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -34,6 +35,7 @@ export default function Sidebar() {
     { id: 'heatmap', path: '/heatmap', name: 'Activity Heatmap', icon: Grid },
     { id: 'stats', path: '/stats', name: 'Statistics', icon: BarChart3 },
     { id: 'notes', path: '/notes', name: 'Study Material', icon: FileText },
+    { id: 'study-plan', path: '/study-plan', name: 'Study Plan', icon: ClipboardList },
     { id: 'settings', path: '/settings', name: 'Settings', icon: Settings },
   ];
 
