@@ -33,7 +33,7 @@ export default function Sidebar() {
     { id: 'revision', path: '/revision', name: 'Revision (R1-R3)', icon: RefreshCw },
     { id: 'mocks', path: '/mocks', name: 'Mock Tests', icon: LineChart },
     { id: 'heatmap', path: '/heatmap', name: 'Activity Heatmap', icon: Grid },
-    { id: 'stats', path: '/stats', name: 'Statistics', icon: BarChart3 },
+    { id: 'stats', path: '/stats', name: 'Task Timeline', icon: ClipboardList },
     { id: 'notes', path: '/notes', name: 'Study Material', icon: FileText },
     { id: 'study-plan', path: '/study-plan', name: 'Study Plan', icon: ClipboardList },
     { id: 'settings', path: '/settings', name: 'Settings', icon: Settings },

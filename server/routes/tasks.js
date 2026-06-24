@@ -32,6 +32,17 @@ function getCurrentDay(startDate, targetDays) {
   return current;
 }
 
+// Get ALL tasks across all dates (for timeline view)
+router.get('/all', authMiddleware, async (req, res) => {
+  try {
+    const tasks = await TodayTask.find({ userId: req.user._id }).sort({ date: -1 });
+    res.json(tasks);
+  } catch (error) {
+    console.error('Fetch all tasks error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get tasks for a specific date (and sync daily templates)
 router.get('/', authMiddleware, async (req, res) => {
   const date = req.query.date || getLocalDateString();
