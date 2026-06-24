@@ -4,7 +4,6 @@ import {
   Plus, 
   Trash2, 
   ClipboardList, 
-  Sparkles, 
   Timer, 
   Volume2, 
   VolumeX, 
@@ -64,7 +63,10 @@ export default function TodayView() {
     pauseStudyTask,
     resumeStudyTask,
     user,
-    fetchTasksForDate
+    fetchTasksForDate,
+    openRecallModal,
+    openQPModal,
+    openCompletionModal,
   } = useApp();
 
   // Task Form States
@@ -73,27 +75,18 @@ export default function TodayView() {
   const [selectedSubjectKey, setSelectedSubjectKey] = useState('');
   const [selectedTopic, setSelectedTopic] = useState('');
   const [formCustomMessage, setFormCustomMessage] = useState('');
+  const [showAddTaskForm, setShowAddTaskForm] = useState(false);
 
-  // Feynman Active Recall States
-  const [activeRecallTask, setActiveRecallTask] = useState(null);
-  const [recallText, setRecallText] = useState('');
-  const [isRecallModalOpen, setIsRecallModalOpen] = useState(false);
+  // Feynman Active Recall States (removed — now global via AppContext)
   const [viewDay, setViewDay] = useState(currentDay || 1);
   const [scheduleType, setScheduleType] = useState('today'); // 'today' | 'daily' | 'specific'
   const [specDay, setSpecDay] = useState('');
-  const [questionsSolved, setQuestionsSolved] = useState(0);
 
   // Question Practice task state
   const [questionPracticeText, setQuestionPracticeText] = useState('');
   const [questionPracticeCount, setQuestionPracticeCount] = useState(10);
   const [qpSubjectKey, setQpSubjectKey] = useState('');
   const [qpTopic, setQpTopic] = useState('');
-
-  // Question Practice completion modal
-  const [isQPModalOpen, setIsQPModalOpen] = useState(false);
-  const [qpModalTask, setQpModalTask] = useState(null);
-  const [qpModalCount, setQpModalCount] = useState(0);
-  const [qpModalNote, setQpModalNote] = useState('');
 
   // Task Filter and Edit States
   const [filterType, setFilterType] = useState('all');
@@ -221,6 +214,7 @@ export default function TodayView() {
       addTodayTask(customText.trim(), todayStr, undefined, undefined, isDaily, specificDayNum, msg, 'custom', 0);
       setCustomText('');
       setFormCustomMessage('');
+      setShowAddTaskForm(false);
     } else if (taskType === 'question_practice') {
       if (!questionPracticeText.trim()) return;
       if (!qpSubjectKey || !qpTopic) {
@@ -240,6 +234,7 @@ export default function TodayView() {
       );
       setQuestionPracticeText('');
       setFormCustomMessage('');
+      setShowAddTaskForm(false);
     } else {
       if (!selectedSubjectKey || !selectedTopic) {
         toast.error('Please select a subject and a topic');
@@ -260,57 +255,24 @@ export default function TodayView() {
 
       addTodayTask(taskText, todayStr, selectedSubjectKey, selectedTopic, isDaily, specificDayNum, msg, 'topic', 0);
       setFormCustomMessage('');
+      setShowAddTaskForm(false);
     }
   };
 
-  // Checkbox Toggle with Feynman Active Recall Popup
+  // Checkbox Toggle — opens global Feynman / QP modal via context
   const handleTaskCheckClick = (task) => {
     if (!task.done) {
-      // Question practice: show light modal instead of Feynman
       if (task.taskType === 'question_practice') {
-        setQpModalTask(task);
-        setQpModalCount(task.questionCount || 0);
-        setQpModalNote('');
-        setIsQPModalOpen(true);
+        openQPModal(task);
         return;
       }
-      setActiveRecallTask(task);
-      setRecallText('');
-      setQuestionsSolved(0);
-      setIsRecallModalOpen(true);
+      openRecallModal(task);
     } else {
       toggleTodayTask(task._id, false);
     }
   };
 
-  // Question Practice modal submit
-  const handleQPModalSubmit = async (e) => {
-    e.preventDefault();
-    setIsQPModalOpen(false);
-    // Pass qpModalCount as the questions param — server will update TopicProgress.dailyChecks[day].questions
-    await toggleTodayTask(qpModalTask._id, true, qpModalNote.trim() || undefined, qpModalCount);
-    setQpModalTask(null);
-    setQpModalNote('');
-    setQpModalCount(0);
-  };
 
-  const handleRecallSubmit = async (e) => {
-    e.preventDefault();
-    if (recallText.trim().length < 15) {
-      toast.error('Please write a slightly more detailed explanation (minimum 15 characters).');
-      return;
-    }
-
-    const reflectionText = recallText.trim();
-    setIsRecallModalOpen(false);
-    
-    // Toggle task in DB and save feynman reflection & questions solved
-    await toggleTodayTask(activeRecallTask._id, true, reflectionText, questionsSolved);
-    
-    setActiveRecallTask(null);
-    setRecallText('');
-    setQuestionsSolved(0);
-  };
 
   // Pomodoro Timer Effects & Controls
   useEffect(() => {
@@ -483,6 +445,15 @@ export default function TodayView() {
   const totalTasksCount = todayTasks.length;
   const isAllTasksDone = totalTasksCount > 0 && completedTasksCount === totalTasksCount;
 
+  // Celebration modal — trigger via global context
+  const prevAllDoneRef = React.useRef(false);
+  useEffect(() => {
+    if (isAllTasksDone && !prevAllDoneRef.current) {
+      openCompletionModal({ completedCount: completedTasksCount, day: currentDay });
+    }
+    prevAllDoneRef.current = isAllTasksDone;
+  }, [isAllTasksDone]);
+
   const completedHabitsCount = habits.filter(h => h.done).length;
   const totalHabitsCount = habits.length;
 
@@ -504,17 +475,7 @@ export default function TodayView() {
       {/* Hidden audio element */}
       <audio ref={audioRef} loop />
 
-      {/* Celebration Banner */}
-      {isAllTasksDone && (
-        <div className="bg-primary/10 border border-primary/30 rounded-2xl p-6 text-center shadow-lg relative overflow-hidden animate-bounce max-w-5xl mx-auto">
-          <div className="absolute -top-10 -right-10 w-24 h-24 bg-primary/10 rounded-full blur-2xl"></div>
-          <Sparkles className="w-10 h-10 text-primary mx-auto mb-3 animate-pulse" />
-          <h2 className="text-xl font-bold tracking-tight text-primary font-outfit">Today's Focus Goal Completed! 🎉</h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            Phenomenal persistence on Day {currentDay}! All selected focus tasks are ticked off.
-          </p>
-        </div>
-      )}
+
 
       {/* Two Column Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
@@ -535,7 +496,7 @@ export default function TodayView() {
                 </p>
               </div>
 
-              {/* Day Selector */}
+              {/* Day Selector + Add Task Button */}
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-semibold text-muted-foreground">Viewing Day:</span>
                 <select
@@ -549,6 +510,19 @@ export default function TodayView() {
                     </option>
                   ))}
                 </select>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAddTaskForm(prev => !prev)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${
+                    showAddTaskForm
+                      ? 'bg-muted border border-border text-muted-foreground hover:bg-muted/80'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  }`}
+                >
+                  <Plus className={`w-3.5 h-3.5 transition-transform duration-200 ${showAddTaskForm ? 'rotate-45' : ''}`} />
+                  {showAddTaskForm ? 'Cancel' : 'Add Task'}
+                </button>
               </div>
             </div>
 
@@ -568,8 +542,9 @@ export default function TodayView() {
               </div>
             )}
 
-            {/* Task Creation Tabs Form */}
-            <div className="mb-6 border border-border rounded-xl p-4 bg-muted/10">
+            {/* Task Creation Tabs Form — collapsible */}
+            {showAddTaskForm && (
+            <div className="mb-6 border border-border rounded-xl p-4 bg-muted/10 animate-[fadeIn_0.15s_ease]">
               <div className="flex border-b border-border mb-4 gap-4">
                 <button
                   type="button"
@@ -786,6 +761,7 @@ export default function TodayView() {
                 </div>
               </form>
             </div>
+            )}
 
             {/* Task Filters */}
             {todayTasks.length > 0 && (
@@ -1408,156 +1384,7 @@ export default function TodayView() {
 
       </div>
 
-      {/* Feynman Active Recall Modal */}
-      {isRecallModalOpen && activeRecallTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border w-full max-w-md rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div>
-              <span className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" />
-                Active Learning Check
-              </span>
-              <h3 className="text-lg font-bold font-outfit text-foreground mt-1">
-                Feynman Technique Verification
-              </h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Explain what you learned in <strong className="text-foreground">"{activeRecallTask.text.replace('Review Topic: ', '')}"</strong> in your own words. Explaining it simply is the ultimate proof of mastery.
-              </p>
-            </div>
-
-            <form onSubmit={handleRecallSubmit} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                  Your Explanation (Min 15 chars)
-                </label>
-                <textarea
-                  required
-                  placeholder="Write a 1-2 sentence core summary of concepts, formulas, or rules you learned..."
-                  value={recallText}
-                  onChange={(e) => setRecallText(e.target.value)}
-                  className="w-full h-24 bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
-                />
-                <div className="flex justify-between items-center text-[10px] text-muted-foreground mt-1 px-1">
-                  <span>Be simple, clear, and concise.</span>
-                  <span className={recallText.trim().length >= 15 ? 'text-primary font-semibold' : 'text-red-500 font-semibold'}>
-                    {recallText.trim().length} / 15 chars min
-                  </span>
-                </div>
-              </div>
-
-              {/* Show questions input if it is a topic-based task */}
-              {activeRecallTask.subjectKey && (
-                <div>
-                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                    Questions Solved Today
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={questionsSolved}
-                    onChange={(e) => setQuestionsSolved(Math.max(0, parseInt(e.target.value) || 0))}
-                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-bold"
-                  />
-                  <span className="block text-[9px] text-muted-foreground mt-1 px-1">
-                    Enter the number of practice questions completed for this topic study block.
-                  </span>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRecallModalOpen(false);
-                    setActiveRecallTask(null);
-                  }}
-                  className="flex-1 py-2 border border-border hover:bg-secondary text-muted-foreground text-xs font-semibold rounded-lg transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={recallText.trim().length < 15}
-                  className="flex-1 py-2 bg-primary hover:bg-primary/95 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground text-xs font-semibold rounded-lg shadow-sm transition-all"
-                >
-                  Lock In Study Block
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Question Practice Completion Modal */}
-      {isQPModalOpen && qpModalTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border w-full max-w-md rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div>
-              <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest flex items-center gap-1">
-                🎯 Question Practice Complete
-              </span>
-              <h3 className="text-lg font-bold font-outfit text-foreground mt-1">
-                Log Your Practice Session
-              </h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Confirm how many questions you actually solved. This will be added to today's question count for <strong className="text-foreground">{subjects.find(s => s.key === qpModalTask.subjectKey)?.name || qpModalTask.subjectKey} → {qpModalTask.topic}</strong>.
-              </p>
-            </div>
-
-            <form onSubmit={handleQPModalSubmit} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                  Questions Solved
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={qpModalCount}
-                  onChange={(e) => setQpModalCount(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-bold"
-                />
-                <span className="block text-[9px] text-muted-foreground mt-1 px-1">
-                  Edit if you solved fewer/more than planned ({qpModalTask.questionCount} planned).
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                  Short Note (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Mostly easy, struggled with double analogy..."
-                  value={qpModalNote}
-                  onChange={(e) => setQpModalNote(e.target.value)}
-                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsQPModalOpen(false);
-                    setQpModalTask(null);
-                  }}
-                  className="flex-1 py-2 border border-border hover:bg-secondary text-muted-foreground text-xs font-semibold rounded-lg transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
-                >
-                  ✅ Mark Complete & Save
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }
+

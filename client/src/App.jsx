@@ -14,6 +14,9 @@ import HeatmapView from './components/HeatmapView';
 import StatsView from './components/StatsView';
 import NotesView from './components/NotesView';
 import SettingsView from './components/SettingsView';
+import ActiveStudyCard from './components/ActiveStudyCard';
+import FeynmanRecallModal from './components/FeynmanRecallModal';
+import TaskCompletionModal from './components/TaskCompletionModal';
 import { Loader2, FileText, Download, X } from 'lucide-react';
 
 function Header() {
@@ -38,7 +41,7 @@ function Header() {
   };
 
   return (
-    <header className="hidden lg:flex items-center justify-between px-8 py-4 border-b border-border bg-card">
+    <header className="hidden lg:flex items-center justify-between px-8 py-2 border-b border-border bg-card">
       <div>
         <h1 className="text-lg font-bold tracking-tight text-foreground font-outfit">{getTabTitle()}</h1>
         <p className="text-xs text-muted-foreground">Keep studying, consistency leads to success.</p>
@@ -107,6 +110,15 @@ function DashboardShell() {
         </div>
 
       </main>
+
+      {/* Global floating active-study card — visible on every page */}
+      <ActiveStudyCard />
+
+      {/* Global Feynman recall + QP completion modals */}
+      <FeynmanRecallModal />
+
+      {/* Global all-tasks completion celebration */}
+      <TaskCompletionModal />
 
     </div>
   );

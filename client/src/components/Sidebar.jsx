@@ -65,7 +65,7 @@ export default function Sidebar() {
 
       {/* Mobile Drawer Navigation overlay */}
       {isOpen && (
-        <div 
+        <div
           className="lg:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
           onClick={() => setIsOpen(false)}
         />
@@ -90,11 +90,10 @@ export default function Sidebar() {
                     key={item.id}
                     to={item.path}
                     onClick={() => setIsOpen(false)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      isActive
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${isActive
                         ? 'bg-primary text-primary-foreground shadow-md shadow-primary/15'
                         : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
+                      }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span>{item.name}</span>
@@ -121,11 +120,10 @@ export default function Sidebar() {
 
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-card border-r border-border h-screen sticky top-0 text-foreground transition-colors duration-300 shrink-0">
-        <div className="p-4 border-b border-border flex items-center gap-2">
+        <div className="p-4  flex items-center gap-2">
           <Target className="w-6 h-6 text-primary" />
           <div>
             <h1 className="font-bold tracking-tight text-lg leading-none font-outfit">StudyDash</h1>
-            <p className="text-[10px] text-muted-foreground tracking-wider uppercase mt-1">SSC CGL & Coal India</p>
           </div>
         </div>
 
@@ -164,11 +162,10 @@ export default function Sidebar() {
               <Link
                 key={item.id}
                 to={item.path}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                  isActive
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-sm font-medium transition-all ${isActive
                     ? 'bg-primary text-primary-foreground shadow-md shadow-primary/10'
                     : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
-                }`}
+                  }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 <span>{item.name}</span>

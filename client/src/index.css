@@ -86,3 +86,15 @@
   border-radius: 2px;
   transition: all 0.15s ease;
 }
+
+/* Fade-in animation for collapsible panels */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Slide-up animation for ActiveStudyCard */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

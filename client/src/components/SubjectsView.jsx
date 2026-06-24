@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
 import { 
@@ -29,10 +29,147 @@ import {
   ArrowLeft,
   Calendar,
   Award,
-  Camera
+  Camera,
+  BookOpen,
+  Target,
+  TrendingUp,
+  Flame,
+  BarChart2,
+  Star,
+  Zap,
+  CheckSquare,
+  Circle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CameraCaptureModal from './CameraCaptureModal';
+
+// ==========================================
+// Reusable Modal Component
+// ==========================================
+function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-md' }) {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className={`bg-card border border-border rounded-2xl shadow-2xl w-full ${maxWidth} animate-fade-in`}
+        style={{ animation: 'fadeIn 0.15s ease-out' }}
+      >
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h3 className="font-bold text-foreground text-base font-outfit">{title}</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-secondary rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Modal Body */}
+        <div className="px-6 py-5">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// Confirm Dialog Component
+// ==========================================
+function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Delete', confirmVariant = 'destructive' }) {
+  if (!isOpen) return null;
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
+      <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{message}</p>
+      <div className="flex items-center justify-end gap-3">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-semibold rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => { onConfirm(); onClose(); }}
+          className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+            confirmVariant === 'destructive'
+              ? 'bg-red-500 hover:bg-red-600 text-white shadow-sm'
+              : 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm'
+          }`}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ==========================================
+// Input Prompt Dialog Component
+// ==========================================
+function InputDialog({ isOpen, onClose, onConfirm, title, label, placeholder, defaultValue = '', confirmLabel = 'Save' }) {
+  const [value, setValue] = useState(defaultValue);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setValue(defaultValue);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isOpen, defaultValue]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!value.trim()) return;
+    onConfirm(value.trim());
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {label && <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</label>}
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder={placeholder}
+          className="w-full px-4 py-2.5 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+        />
+        <div className="flex items-center justify-end gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-semibold rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!value.trim()}
+            className="px-4 py-2 text-sm font-bold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 // ==========================================
 // Sub-Component: Topic Resource Explorer
@@ -48,13 +185,15 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   const [renamingVal, setRenamingVal] = useState('');
   const [movingId, setMovingId] = useState(null);
   const [activeMediaUrl, setActiveMediaUrl] = useState(null);
-  const [activeMediaType, setActiveMediaType] = useState(null); // 'image' | 'youtube'
+  const [activeMediaType, setActiveMediaType] = useState(null);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const fileInputRef = useRef(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [showAddFolder, setShowAddFolder] = useState(false);
+  const [showAddLink, setShowAddLink] = useState(false);
 
   const handleCameraCapture = async (file) => {
     setIsUploading(true);
@@ -66,7 +205,6 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
     if (currentFolderId) {
       formData.append('parentId', currentFolderId);
     }
-
     try {
       await addTopicResource(progress.subjectKey, progress.topic, formData);
     } catch (err) {
@@ -77,48 +215,28 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   };
 
   const resources = progress.resources || [];
-  
-  // Filter resources for current directory
   const currentResources = resources.filter(r => r.parentId === currentFolderId);
-  
-  // Find all folders for the "Move to..." dropdown (excluding the folder being moved)
   const allFolders = resources.filter(r => r.type === 'folder' && r.id !== movingId);
 
-  // Helper to extract YouTube video ID and build embed link
   const getYoutubeVideoId = (url) => {
     if (!url) return '';
     const str = String(url).trim();
-    
-    // Check for shorts
     if (str.includes('/shorts/')) {
       const parts = str.split('/shorts/');
-      if (parts[1]) {
-        return parts[1].split(/[?#&]/)[0];
-      }
+      if (parts[1]) return parts[1].split(/[?#&]/)[0];
     }
-    
-    // Check for live stream
     if (str.includes('/live/')) {
       const parts = str.split('/live/');
-      if (parts[1]) {
-        return parts[1].split(/[?#&]/)[0];
-      }
+      if (parts[1]) return parts[1].split(/[?#&]/)[0];
     }
-
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = str.match(regExp);
-    if (match && match[2].length === 11) {
-      return match[2];
-    }
-    
+    if (match && match[2].length === 11) return match[2];
     try {
       const urlObj = new URL(str);
       const v = urlObj.searchParams.get('v');
       if (v && v.length === 11) return v;
-    } catch (e) {
-      // ignore
-    }
-    
+    } catch (e) {}
     return '';
   };
 
@@ -132,7 +250,6 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
     return /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url) || url.startsWith('data:image/');
   };
 
-  // Helper to build breadcrumb path
   const getBreadcrumbs = () => {
     const crumbs = [];
     let currentId = currentFolderId;
@@ -151,31 +268,27 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   const handleCreateFolder = async (e) => {
     e.preventDefault();
     if (!newFolderName.trim()) return;
-    
-    // Check if name duplicate in same folder
     const exists = currentResources.some(r => r.type === 'folder' && r.name.toLowerCase() === newFolderName.trim().toLowerCase());
     if (exists) {
       toast.warning('A folder with this name already exists.');
       return;
     }
-
     await addTopicResource(progress.subjectKey, progress.topic, {
       name: newFolderName.trim(),
       type: 'folder',
       parentId: currentFolderId || null
     });
     setNewFolderName('');
+    setShowAddFolder(false);
   };
 
   const handleCreateLink = async (e) => {
     e.preventDefault();
     if (!newLinkLabel.trim() || !newLinkUrl.trim()) return;
-
     let url = newLinkUrl.trim();
     if (!/^https?:\/\//i.test(url)) {
       url = 'https://' + url;
     }
-
     await addTopicResource(progress.subjectKey, progress.topic, {
       name: newLinkLabel.trim(),
       type: 'link',
@@ -184,12 +297,12 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
     });
     setNewLinkLabel('');
     setNewLinkUrl('');
+    setShowAddLink(false);
   };
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     setIsUploading(true);
     const formData = new FormData();
     formData.append('file', file);
@@ -198,7 +311,6 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
     if (currentFolderId) {
       formData.append('parentId', currentFolderId);
     }
-
     try {
       await addTopicResource(progress.subjectKey, progress.topic, formData);
     } catch (err) {
@@ -218,8 +330,6 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
 
   const handleMoveSubmit = async (id, targetParentId) => {
     const pId = targetParentId === 'root' ? null : targetParentId;
-    
-    // Cycle check: make sure we are not moving a folder into its own descendants
     if (targetParentId !== 'root') {
       let checkId = pId;
       while (checkId !== null) {
@@ -231,7 +341,6 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
         checkId = parentFolder ? parentFolder.parentId : null;
       }
     }
-
     await updateTopicResource(progress.subjectKey, progress.topic, id, { parentId: pId });
     setMovingId(null);
   };
@@ -261,7 +370,6 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
       } else if (resource.url?.toLowerCase().split('?')[0].endsWith('.pdf')) {
         window.open(`${window.location.origin}/?pdf=${encodeURIComponent(fullUrl)}&name=${encodeURIComponent(resource.name)}`, '_blank');
       } else {
-        // PDF or others open in new tab
         window.open(fullUrl, '_blank');
       }
     }
@@ -270,26 +378,24 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
   const breadcrumbs = getBreadcrumbs();
 
   return (
-    <div className="border border-border/80 bg-background/50 rounded-xl p-4 space-y-4">
-      
-      {/* File Explorer Header with Breadcrumbs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3">
+    <div className="space-y-4">
+      {/* Breadcrumb Navigation */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center flex-wrap gap-1 text-xs font-semibold text-muted-foreground">
-          <button 
+          <button
             onClick={() => setCurrentFolderId(null)}
-            className="hover:text-primary transition-colors flex items-center gap-1"
+            className="hover:text-primary transition-colors flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-primary/8"
           >
             <FolderOpen className="w-3.5 h-3.5" />
-            <span>Root Workspace</span>
+            <span>Root</span>
           </button>
-          
           {breadcrumbs.map((crumb, idx) => (
             <React.Fragment key={crumb.id}>
-              <ChevronRight className="w-3 h-3 text-muted-foreground/60" />
-              <button 
+              <ChevronRight className="w-3 h-3 text-muted-foreground/40" />
+              <button
                 onClick={() => setCurrentFolderId(crumb.id)}
-                className={`hover:text-primary transition-colors ${
-                  idx === breadcrumbs.length - 1 ? 'text-foreground font-bold' : ''
+                className={`px-2 py-1 rounded-md transition-colors hover:bg-primary/8 ${
+                  idx === breadcrumbs.length - 1 ? 'text-foreground font-bold hover:text-primary' : 'hover:text-primary'
                 }`}
               >
                 {crumb.name}
@@ -298,95 +404,110 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
           ))}
         </div>
 
-        {/* Upload and creation actions */}
+        {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          
-          {/* File Upload Input */}
-          <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 hover:bg-primary/15 border border-primary/20 text-primary rounded-lg text-xs font-bold cursor-pointer transition-all shadow-sm">
-            {isUploading ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Upload className="w-3 h-3" />
-            )}
-            <span>{isUploading ? 'Uploading...' : 'Upload File (PDF/Img)'}</span>
-            <input 
-              type="file" 
-              ref={fileInputRef}
-              disabled={isUploading}
-              onChange={handleFileUpload}
-              className="hidden" 
-              accept=".pdf,image/*"
-            />
+          <button
+            type="button"
+            onClick={() => { setShowAddFolder(!showAddFolder); setShowAddLink(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              showAddFolder
+                ? 'bg-primary/15 border-primary/30 text-primary'
+                : 'bg-secondary border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
+            }`}
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            <span>New Folder</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setShowAddLink(!showAddLink); setShowAddFolder(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              showAddLink
+                ? 'bg-primary/15 border-primary/30 text-primary'
+                : 'bg-secondary border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            <span>Add Link</span>
+          </button>
+
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+            isUploading
+              ? 'bg-primary/10 border-primary/20 text-primary'
+              : 'bg-secondary border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
+          }`}>
+            {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            <span>{isUploading ? 'Uploading...' : 'Upload'}</span>
+            <input type="file" ref={fileInputRef} disabled={isUploading} onChange={handleFileUpload} className="hidden" accept=".pdf,image/*" />
           </label>
 
-          {/* Camera Capture Button */}
           <button
             type="button"
             disabled={isUploading}
             onClick={() => setIsCameraOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-secondary hover:bg-secondary/80 border border-border text-foreground rounded-lg text-xs font-bold transition-all shadow-sm disabled:opacity-50 animate-fade-in"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary border border-border text-muted-foreground hover:text-foreground rounded-lg text-xs font-semibold transition-all disabled:opacity-50 hover:border-primary/30"
           >
-            <Camera className="w-3.5 h-3.5 text-primary" />
-            <span>Take Photo</span>
+            <Camera className="w-3.5 h-3.5" />
+            <span>Camera</span>
           </button>
         </div>
       </div>
 
-      {/* Creation Forms Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        
-        {/* Create Folder Form */}
-        <form onSubmit={handleCreateFolder} className="flex gap-2">
-          <input 
-            type="text" 
-            placeholder="New folder name..."
+      {/* Inline creation panels */}
+      {showAddFolder && (
+        <form onSubmit={handleCreateFolder} className="flex gap-2 p-3 bg-background border border-primary/20 rounded-xl animate-fade-in">
+          <FolderPlus className="w-4 h-4 text-primary mt-2 shrink-0" />
+          <input
+            type="text"
+            placeholder="Folder name..."
+            autoFocus
             required
             value={newFolderName}
             onChange={e => setNewFolderName(e.target.value)}
-            className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="flex-1 bg-transparent text-sm text-foreground focus:outline-none placeholder:text-muted-foreground/60"
           />
-          <button 
-            type="submit"
-            className="px-3 py-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 transition-all border border-border/80"
-          >
-            <FolderPlus className="w-3.5 h-3.5" />
-            <span>Folder</span>
-          </button>
+          <button type="submit" className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold transition-all hover:bg-primary/90">Create</button>
+          <button type="button" onClick={() => setShowAddFolder(false)} className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"><X className="w-4 h-4" /></button>
         </form>
+      )}
 
-        {/* Add Link Form */}
-        <form onSubmit={handleCreateLink} className="flex gap-2">
-          <input 
-            type="text" 
-            placeholder="Link Title (e.g. YouTube tutorial)..."
-            required
-            value={newLinkLabel}
-            onChange={e => setNewLinkLabel(e.target.value)}
-            className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-          />
-          <input 
-            type="text" 
-            placeholder="URL..."
-            required
-            value={newLinkUrl}
-            onChange={e => setNewLinkUrl(e.target.value)}
-            className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-          />
-          <button 
-            type="submit"
-            className="px-3 py-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 transition-all border border-border/80"
-          >
-            <Link2 className="w-3.5 h-3.5" />
-            <span>Link</span>
-          </button>
+      {showAddLink && (
+        <form onSubmit={handleCreateLink} className="flex flex-col gap-2 p-3 bg-background border border-primary/20 rounded-xl animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Add Link or YouTube URL</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Label (e.g. 'Algebra Tutorial')"
+              autoFocus
+              required
+              value={newLinkLabel}
+              onChange={e => setNewLinkLabel(e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary transition-all"
+            />
+            <input
+              type="text"
+              placeholder="URL..."
+              required
+              value={newLinkUrl}
+              onChange={e => setNewLinkUrl(e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary transition-all"
+            />
+            <button type="submit" className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:bg-primary/90 shrink-0">Add</button>
+            <button type="button" onClick={() => setShowAddLink(false)} className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"><X className="w-4 h-4" /></button>
+          </div>
         </form>
-
-      </div>
+      )}
 
       {/* Grid of Files and Folders */}
       {currentResources.length === 0 ? (
-        <div className="text-center py-10 text-muted-foreground text-xs border border-dashed border-border/80 rounded-lg">
-          Folder is empty. Upload PDFs/images or create sub-folders and YouTube links.
+        <div className="text-center py-12 text-muted-foreground text-sm border-2 border-dashed border-border/60 rounded-xl flex flex-col items-center gap-2">
+          <FolderOpen className="w-8 h-8 text-muted-foreground/40" />
+          <span className="text-xs font-semibold">This folder is empty</span>
+          <span className="text-[11px] text-muted-foreground/60">Upload PDFs, images, or add YouTube links above</span>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -394,43 +515,44 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
             const isYT = res.type === 'link' && !!getYoutubeVideoId(res.url);
             const isImg = res.type === 'file' && isImageFile(res.url);
             const isPDF = res.type === 'file' && res.url && res.url.toLowerCase().endsWith('.pdf');
-
             const ytVideoId = isYT ? getYoutubeVideoId(res.url) : '';
             const ytThumbnail = ytVideoId ? `https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg` : '';
 
             return (
-              <div 
+              <div
                 key={res.id}
-                className="group relative border border-border rounded-xl bg-card p-3 flex flex-col justify-between hover:border-primary/40 hover:shadow-sm transition-all"
+                className="group relative border border-border rounded-xl bg-card flex flex-col justify-between hover:border-primary/40 hover:shadow-md transition-all overflow-hidden"
               >
-                {/* Media Preview Box or Icon */}
-                <div 
+                {/* Media Preview */}
+                <div
                   onClick={() => handleResourceClick(res)}
-                  className="aspect-video w-full rounded-lg bg-muted/50 border border-border/60 flex items-center justify-center overflow-hidden cursor-pointer relative group-hover:bg-muted/70 transition-all mb-2"
+                  className="aspect-video w-full bg-muted/50 flex items-center justify-center overflow-hidden cursor-pointer relative"
                 >
                   {isImg ? (
-                    <img 
-                      src={getResourceUrl(res.url)} 
-                      alt={res.name} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
-                    />
+                    <img src={getResourceUrl(res.url)} alt={res.name} className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" />
                   ) : isYT && ytThumbnail ? (
-                    <img 
-                      src={ytThumbnail} 
-                      alt={res.name} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
-                    />
+                    <div className="relative w-full h-full">
+                      <img src={ytThumbnail} alt={res.name} className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-all">
+                        <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
+                          <div className="w-0 h-0 border-t-4 border-b-4 border-l-6 border-transparent border-l-white ml-0.5" style={{borderLeftWidth:'7px', borderLeftColor:'white'}}/>
+                        </div>
+                      </div>
+                    </div>
                   ) : isYT ? (
-                    <div className="flex flex-col items-center gap-1">
-                      <Youtube className="w-8 h-8 text-red-500 fill-red-500 animate-pulse" />
-                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">YouTube Video</span>
+                    <div className="flex flex-col items-center gap-1.5">
+                      <Youtube className="w-8 h-8 text-red-500 fill-red-500" />
+                      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">YouTube</span>
                     </div>
                   ) : res.type === 'folder' ? (
-                    <Folder className="w-8 h-8 text-amber-500 fill-amber-500" />
+                    <div className="flex flex-col items-center gap-1.5">
+                      <Folder className="w-8 h-8 text-amber-500 fill-amber-500/20" />
+                      <span className="text-[9px] font-bold text-amber-600/80 uppercase tracking-widest">Folder</span>
+                    </div>
                   ) : isPDF ? (
-                    <div className="flex flex-col items-center gap-1">
-                      <FileText className="w-8 h-8 text-rose-500 fill-rose-500/10" />
-                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">PDF Document</span>
+                    <div className="flex flex-col items-center gap-1.5">
+                      <FileText className="w-8 h-8 text-rose-500" />
+                      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">PDF</span>
                     </div>
                   ) : res.type === 'file' ? (
                     <FileText className="w-8 h-8 text-blue-500" />
@@ -439,46 +561,36 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
                   )}
                 </div>
 
-                {/* Details Section */}
-                <div className="min-w-0">
+                {/* Name and Type */}
+                <div className="p-2.5 min-w-0">
                   {renamingId === res.id ? (
-                    <div className="flex items-center gap-1 mt-1">
-                      <input 
+                    <div className="flex items-center gap-1">
+                      <input
                         type="text"
                         value={renamingVal}
                         onChange={e => setRenamingVal(e.target.value)}
                         className="w-full px-2 py-0.5 border border-primary bg-background rounded text-xs focus:outline-none"
+                        autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') handleRenameSubmit(res.id); if (e.key === 'Escape') setRenamingId(null); }}
                       />
-                      <button 
-                        onClick={() => handleRenameSubmit(res.id)}
-                        className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded font-bold"
-                      >
-                        OK
-                      </button>
-                      <button 
-                        onClick={() => setRenamingId(null)}
-                        className="text-[9px] bg-secondary border border-border px-1.5 py-0.5 rounded text-muted-foreground font-semibold"
-                      >
-                        X
-                      </button>
+                      <button onClick={() => handleRenameSubmit(res.id)} className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded font-bold shrink-0">OK</button>
+                      <button onClick={() => setRenamingId(null)} className="text-[9px] text-muted-foreground shrink-0"><X className="w-3 h-3" /></button>
                     </div>
                   ) : (
-                    <div 
+                    <div
                       onClick={() => handleResourceClick(res)}
-                      className="text-xs font-semibold text-foreground truncate cursor-pointer hover:text-primary transition-colors pr-6 mt-1"
+                      className="text-xs font-semibold text-foreground truncate cursor-pointer hover:text-primary transition-colors"
                       title={res.name}
                     >
                       {res.name}
                     </div>
                   )}
-
-                  {/* Resource type detail label */}
-                  <span className="text-[8px] text-muted-foreground uppercase font-bold tracking-wider leading-none">
-                    {res.type === 'folder' ? 'Folder' : isYT ? 'YouTube' : isPDF ? 'PDF Document' : res.type}
+                  <span className="text-[9px] text-muted-foreground/70 uppercase font-bold tracking-wider">
+                    {res.type === 'folder' ? 'Folder' : isYT ? 'YouTube' : isPDF ? 'PDF' : res.type}
                   </span>
                 </div>
 
-                {/* Move Dropdown Panel */}
+                {/* Move Dropdown */}
                 {movingId === res.id && (
                   <div className="absolute inset-x-0 bottom-0 bg-card border-t border-border p-2 rounded-b-xl z-10 space-y-1">
                     <span className="block text-[8px] font-bold text-muted-foreground uppercase tracking-wider">Move to:</span>
@@ -496,41 +608,31 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
                         ))
                       }
                     </select>
-                    <button 
-                      onClick={() => setMovingId(null)}
-                      className="w-full text-center text-[8px] text-red-500 font-bold hover:underline uppercase pt-0.5"
-                    >
-                      Cancel
-                    </button>
+                    <button onClick={() => setMovingId(null)} className="w-full text-center text-[8px] text-red-500 font-bold hover:underline uppercase pt-0.5">Cancel</button>
                   </div>
                 )}
 
-                {/* Float Actions overlay */}
-                <div className="absolute right-2 bottom-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-card/90 py-0.5 px-1 rounded border border-border shadow-sm">
-                  <button 
-                    onClick={() => {
-                      setRenamingId(res.id);
-                      setRenamingVal(res.name);
-                    }}
-                    className="p-1 hover:text-primary text-muted-foreground rounded transition-colors"
+                {/* Hover Actions */}
+                <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => { setRenamingId(res.id); setRenamingVal(res.name); }}
+                    className="p-1 hover:text-primary text-white bg-black/40 hover:bg-black/60 rounded transition-colors"
                     title="Rename"
                   >
                     <Edit2 className="w-3 h-3" />
                   </button>
-                  
                   {res.type !== 'link' && (
-                    <button 
+                    <button
                       onClick={() => setMovingId(res.id)}
-                      className="p-1 hover:text-primary text-muted-foreground rounded transition-colors"
-                      title="Move Folder"
+                      className="p-1 hover:text-primary text-white bg-black/40 hover:bg-black/60 rounded transition-colors"
+                      title="Move"
                     >
                       <Move className="w-3 h-3" />
                     </button>
                   )}
-
-                  <button 
+                  <button
                     onClick={() => handleDelete(res.id)}
-                    className="p-1 hover:text-destructive text-muted-foreground rounded transition-colors"
+                    className="p-1 text-white hover:text-red-300 bg-black/40 hover:bg-red-600/80 rounded transition-colors"
                     title="Delete"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -542,29 +644,22 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
         </div>
       )}
 
-      {/* Lightbox / Video Player Modal */}
+      {/* Lightbox */}
       {activeMediaUrl && activeMediaType && (
         activeMediaType === 'youtube' ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-card border border-border w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl relative">
-              <button 
-                onClick={() => {
-                  setActiveMediaUrl(null);
-                  setActiveMediaType(null);
-                }}
-                className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-black/60 rounded-full text-white z-10 transition-colors"
+              <button
+                onClick={() => { setActiveMediaUrl(null); setActiveMediaType(null); }}
+                className="absolute top-3 right-3 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white z-10 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
-              
-              <div className="p-4 border-b border-border bg-muted/10">
-                <h3 className="font-bold font-outfit text-sm text-foreground truncate pr-10">
-                  Media Preview & Active Learning
-                </h3>
+              <div className="p-4 border-b border-border">
+                <h3 className="font-bold text-sm text-foreground font-outfit">Video Preview</h3>
               </div>
-
               <div className="bg-black flex items-center justify-center aspect-video w-full">
-                <iframe 
+                <iframe
                   src={activeMediaUrl}
                   title="YouTube video player"
                   frameBorder="0"
@@ -576,91 +671,36 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
             </div>
           </div>
         ) : (
-          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm select-none">
-            {/* Close button */}
-            <button 
-              onClick={() => {
-                setActiveMediaUrl(null);
-                setActiveMediaType(null);
-                setScale(1);
-                setPosition({ x: 0, y: 0 });
-              }}
-              className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all z-50 shadow-md"
-              title="Close Preview"
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm select-none">
+            <button
+              onClick={() => { setActiveMediaUrl(null); setActiveMediaType(null); setScale(1); setPosition({ x: 0, y: 0 }); }}
+              className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all z-50"
             >
               <X className="w-5 h-5" />
             </button>
-
-            {/* Floating Zoom Controls */}
             <div className="absolute bottom-6 flex items-center gap-3 px-4 py-2 bg-white/10 backdrop-blur-md border border-white/10 rounded-full z-50 shadow-lg text-white">
-              <button 
-                type="button"
-                onClick={() => setScale(prev => Math.max(prev - 0.25, 0.5))} 
-                className="p-1 text-base font-bold w-6 h-6 flex items-center justify-center hover:bg-white/15 rounded-full transition-colors"
-                title="Zoom Out"
-              >
-                -
-              </button>
-              <span className="text-xs font-mono font-bold w-12 text-center select-none">
-                {Math.round(scale * 100)}%
-              </span>
-              <button 
-                type="button"
-                onClick={() => setScale(prev => Math.min(prev + 0.25, 4))} 
-                className="p-1 text-base font-bold w-6 h-6 flex items-center justify-center hover:bg-white/15 rounded-full transition-colors"
-                title="Zoom In"
-              >
-                +
-              </button>
+              <button type="button" onClick={() => setScale(prev => Math.max(prev - 0.25, 0.5))} className="p-1 font-bold w-6 h-6 flex items-center justify-center hover:bg-white/15 rounded-full transition-colors">-</button>
+              <span className="text-xs font-mono font-bold w-12 text-center">{Math.round(scale * 100)}%</span>
+              <button type="button" onClick={() => setScale(prev => Math.min(prev + 0.25, 4))} className="p-1 font-bold w-6 h-6 flex items-center justify-center hover:bg-white/15 rounded-full transition-colors">+</button>
               <div className="w-[1px] h-4 bg-white/20 mx-1" />
-              <button 
-                type="button"
-                onClick={() => {
-                  setScale(1);
-                  setPosition({ x: 0, y: 0 });
-                }}
-                className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 hover:bg-white/15 rounded-md transition-colors"
-              >
-                Reset
-              </button>
+              <button type="button" onClick={() => { setScale(1); setPosition({ x: 0, y: 0 }); }} className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 hover:bg-white/15 rounded-md transition-colors">Reset</button>
             </div>
-
-            {/* Image display container */}
-            <div 
+            <div
               className="w-full h-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing"
-              onMouseDown={(e) => {
-                if (scale <= 1) return;
-                setIsDragging(true);
-                setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-              }}
-              onMouseMove={(e) => {
-                if (!isDragging) return;
-                setPosition({
-                  x: e.clientX - dragStart.x,
-                  y: e.clientY - dragStart.y
-                });
-              }}
+              onMouseDown={(e) => { if (scale <= 1) return; setIsDragging(true); setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y }); }}
+              onMouseMove={(e) => { if (!isDragging) return; setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
               onMouseUp={() => setIsDragging(false)}
               onMouseLeave={() => setIsDragging(false)}
               onWheel={(e) => {
                 const zoomFactor = 0.1;
-                if (e.deltaY < 0) {
-                  setScale(prev => Math.min(prev + zoomFactor, 4));
-                } else {
-                  setScale(prev => Math.max(prev - zoomFactor, 0.5));
-                }
+                if (e.deltaY < 0) setScale(prev => Math.min(prev + zoomFactor, 4));
+                else setScale(prev => Math.max(prev - zoomFactor, 0.5));
               }}
             >
-              <img 
-                src={activeMediaUrl} 
-                alt="Preview" 
-                style={{
-                  transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-                  transition: isDragging ? 'none' : 'transform 0.15s ease-out',
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  objectFit: 'contain'
-                }}
+              <img
+                src={activeMediaUrl}
+                alt="Preview"
+                style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`, transition: isDragging ? 'none' : 'transform 0.15s ease-out', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                 draggable="false"
                 className="shadow-2xl rounded-lg"
               />
@@ -669,13 +709,62 @@ function TopicResourceExplorer({ progress, addTopicResource, updateTopicResource
         )
       )}
 
-      <CameraCaptureModal 
+      <CameraCaptureModal
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCameraCapture}
         isUploading={isUploading}
       />
     </div>
+  );
+}
+
+// ==========================================
+// Priority Badge
+// ==========================================
+function PriorityBadge({ priority }) {
+  const styles = {
+    High: 'bg-red-500/12 text-red-500 border-red-500/20',
+    Medium: 'bg-amber-500/12 text-amber-600 border-amber-500/20',
+    Low: 'bg-emerald-500/12 text-emerald-600 border-emerald-500/20',
+  };
+  return (
+    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${styles[priority] || styles.Low}`}>
+      {priority}
+    </span>
+  );
+}
+
+// ==========================================
+// Difficulty Badge
+// ==========================================
+function DifficultyBadge({ difficulty }) {
+  const styles = {
+    Hard: 'bg-purple-500/12 text-purple-500 border-purple-500/20',
+    Medium: 'bg-blue-500/12 text-blue-500 border-blue-500/20',
+    Easy: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
+  };
+  return (
+    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${styles[difficulty] || styles.Easy}`}>
+      {difficulty}
+    </span>
+  );
+}
+
+// ==========================================
+// Status Badge
+// ==========================================
+function StatusBadge({ status }) {
+  const styles = {
+    Completed: 'bg-emerald-500/12 text-emerald-600 border-emerald-500/20',
+    Revision: 'bg-orange-500/12 text-orange-500 border-orange-500/20',
+    'In Progress': 'bg-indigo-500/12 text-indigo-500 border-indigo-500/20',
+    'Not Started': 'bg-muted text-muted-foreground border-border',
+  };
+  return (
+    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${styles[status] || styles['Not Started']}`}>
+      {status}
+    </span>
   );
 }
 
@@ -708,87 +797,65 @@ export default function SubjectsView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHeatmapDay, setSelectedHeatmapDay] = useState(null);
 
-  // Subject and Topic CRUD Handlers
-  const handleCreateSubject = async () => {
-    const name = window.prompt("Enter new subject name:");
-    if (!name || !name.trim()) return;
+  // Modal states
+  const [addSubjectOpen, setAddSubjectOpen] = useState(false);
+  const [renameSubjectOpen, setRenameSubjectOpen] = useState(false);
+  const [deleteSubjectOpen, setDeleteSubjectOpen] = useState(false);
+  const [addTopicOpen, setAddTopicOpen] = useState(false);
+  const [renameTopicOpen, setRenameTopicOpen] = useState(false);
+  const [renameTopicTarget, setRenameTopicTarget] = useState('');
+  const [deleteTopicOpen, setDeleteTopicOpen] = useState(false);
+  const [deleteTopicTarget, setDeleteTopicTarget] = useState('');
+
+  // ---- CRUD handlers using custom modals ----
+  const handleCreateSubject = async (name) => {
     try {
-      const newSub = await addSubject(name.trim());
-      if (newSub) {
-        setActiveSubKey(newSub.key);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+      const newSub = await addSubject(name);
+      if (newSub) setActiveSubKey(newSub.key);
+    } catch (e) { console.error(e); }
   };
 
-  const handleRenameSubject = async () => {
+  const handleRenameSubject = async (name) => {
     const activeSub = subjects.find(s => s.key === activeSubKey);
     if (!activeSub) return;
-    const name = window.prompt(`Rename subject "${activeSub.name}" to:`, activeSub.name);
-    if (!name || !name.trim() || name.trim() === activeSub.name) return;
     try {
-      const updatedSub = await updateSubject(activeSub._id, name.trim());
-      if (updatedSub) {
-        setActiveSubKey(updatedSub.key);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+      const updatedSub = await updateSubject(activeSub._id, name);
+      if (updatedSub) setActiveSubKey(updatedSub.key);
+    } catch (e) { console.error(e); }
   };
 
   const handleDeleteSubject = async () => {
     const activeSub = subjects.find(s => s.key === activeSubKey);
     if (!activeSub) return;
-    if (window.confirm(`Are you absolutely sure you want to delete the subject "${activeSub.name}"? This will permanently delete all topics, topic progress, and task logs associated with it!`)) {
-      try {
-        await deleteSubject(activeSub._id);
-        const remaining = subjects.filter(s => s.key !== activeSubKey);
-        if (remaining.length > 0) {
-          setActiveSubKey(remaining[0].key);
-        } else {
-          setActiveSubKey('');
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  };
-
-  const handleCreateTopic = async () => {
-    const activeSub = subjects.find(s => s.key === activeSubKey);
-    if (!activeSub) return;
-    const name = window.prompt("Enter new topic name:");
-    if (!name || !name.trim()) return;
     try {
-      await addTopic(activeSub._id, name.trim());
-    } catch (e) {
-      console.error(e);
-    }
+      await deleteSubject(activeSub._id);
+      const remaining = subjects.filter(s => s.key !== activeSubKey);
+      setActiveSubKey(remaining.length > 0 ? remaining[0].key : '');
+    } catch (e) { console.error(e); }
   };
 
-  const handleRenameTopic = async (oldTopicName) => {
+  const handleCreateTopic = async (name) => {
     const activeSub = subjects.find(s => s.key === activeSubKey);
     if (!activeSub) return;
-    const name = window.prompt(`Rename topic "${oldTopicName}" to:`, oldTopicName);
-    if (!name || !name.trim() || name.trim() === oldTopicName) return;
     try {
-      await updateTopic(activeSub._id, oldTopicName, name.trim());
-    } catch (e) {
-      console.error(e);
-    }
+      await addTopic(activeSub._id, name);
+    } catch (e) { console.error(e); }
   };
 
-  const handleDeleteTopic = async (topicName) => {
+  const handleRenameTopic = async (newName) => {
     const activeSub = subjects.find(s => s.key === activeSubKey);
     if (!activeSub) return;
-    if (window.confirm(`Are you sure you want to delete topic "${topicName}"? This will permanently clear all its progress records, uploader resources, and daily logs!`)) {
-      try {
-        await deleteTopic(activeSub._id, topicName);
-      } catch (e) {
-        console.error(e);
-      }
-    }
+    try {
+      await updateTopic(activeSub._id, renameTopicTarget, newName);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDeleteTopic = async () => {
+    const activeSub = subjects.find(s => s.key === activeSubKey);
+    if (!activeSub) return;
+    try {
+      await deleteTopic(activeSub._id, deleteTopicTarget);
+    } catch (e) { console.error(e); }
   };
 
   // Input states for selected day log editor
@@ -816,7 +883,7 @@ export default function SubjectsView() {
   }
 
   // Filtered topics based on search
-  const filteredProgress = activeProgress.filter(p => 
+  const filteredProgress = activeProgress.filter(p =>
     p.topic.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -829,40 +896,31 @@ export default function SubjectsView() {
   const handleTopicCompletedToggle = async (p) => {
     const nextCompleted = !p.completed;
     const nextStatus = nextCompleted ? 'Completed' : 'In Progress';
-    await updateTopicProgress(p.subjectKey, p.topic, { 
+    await updateTopicProgress(p.subjectKey, p.topic, {
       completed: nextCompleted,
       status: nextStatus
     });
-    toast.success(`"${p.topic}" marked as ${nextCompleted ? 'completed' : 'in progress'}.`);
+    toast.success(`"${p.topic}" marked as ${nextCompleted ? 'completed ✓' : 'in progress'}.`);
   };
 
   const handleSaveDailyLog = async () => {
     if (!activeTopicDetail) return;
     if (activeDetailDay > currentDay) {
-      toast.error(`Cannot edit logs for future days (Day ${activeDetailDay} is locked).`);
+      toast.error(`Cannot edit logs for future days.`);
       return;
     }
     try {
       const dailyCheck = activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay);
       const isDone = dailyCheck ? dailyCheck.done : false;
-      await toggleTopicDaily(
-        activeTopicDetail.subjectKey,
-        activeTopicDetail.topic,
-        activeDetailDay,
-        isDone,
-        localNote,
-        localQuestions
-      );
-      toast.success(`Day ${activeDetailDay} log saved successfully!`);
-    } catch (e) {
-      console.error(e);
-    }
+      await toggleTopicDaily(activeTopicDetail.subjectKey, activeTopicDetail.topic, activeDetailDay, isDone, localNote, localQuestions);
+      toast.success(`Day ${activeDetailDay} log saved!`);
+    } catch (e) { console.error(e); }
   };
 
   const handleToggleDailyDone = async (dayNum, currentDone) => {
     if (!activeTopicDetail) return;
     if (dayNum !== currentDay) {
-      toast.warning(`Locked — only today's cell (Day ${currentDay}) can be checked/unchecked.`, {
+      toast.warning(`Only today's cell (Day ${currentDay}) can be checked/unchecked.`, {
         icon: <Lock className="w-4 h-4 text-amber-500" />
       });
       return;
@@ -871,17 +929,8 @@ export default function SubjectsView() {
       const dailyCheck = activeTopicDetail.dailyChecks.find(c => c.day === dayNum);
       const currentNote = dailyCheck ? dailyCheck.note : '';
       const currentQ = dailyCheck ? dailyCheck.questions : 0;
-      await toggleTopicDaily(
-        activeTopicDetail.subjectKey,
-        activeTopicDetail.topic,
-        dayNum,
-        !currentDone,
-        currentNote,
-        currentQ
-      );
-    } catch (e) {
-      console.error(e);
-    }
+      await toggleTopicDaily(activeTopicDetail.subjectKey, activeTopicDetail.topic, dayNum, !currentDone, currentNote, currentQ);
+    } catch (e) { console.error(e); }
   };
 
   const handleCardToggleDone = async (p, e) => {
@@ -893,41 +942,128 @@ export default function SubjectsView() {
 
     if (!isTodayChecked) {
       const userInput = window.prompt(`How many questions did you solve today for "${p.topic}"?`, "10");
-      if (userInput === null) return; // User cancelled the action
+      if (userInput === null) return;
       targetQuestions = parseInt(userInput) || 0;
     }
 
     try {
-      await toggleTopicDaily(
-        p.subjectKey,
-        p.topic,
-        currentDay,
-        !isTodayChecked,
-        currentNote,
-        targetQuestions
-      );
+      await toggleTopicDaily(p.subjectKey, p.topic, currentDay, !isTodayChecked, currentNote, targetQuestions);
       toast.success(
-        !isTodayChecked 
-          ? `Logged Today's Target with ${targetQuestions} questions!`
-          : `Removed Today's target check.`
+        !isTodayChecked
+          ? `Logged ${targetQuestions} questions for Day ${currentDay}!`
+          : `Removed today's check.`
       );
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
+
+  const completion = getSubjectCompletion();
 
   // Main Render
   return (
-    <div className="space-y-6 text-foreground font-outfit">
-      
-      {/* Subject Tabs (Hidden in Details View) */}
+    <div className="space-y-5 text-foreground font-outfit">
+
+      {/* === Custom Modal Dialogs === */}
+      <InputDialog
+        isOpen={addSubjectOpen}
+        onClose={() => setAddSubjectOpen(false)}
+        onConfirm={handleCreateSubject}
+        title="Add New Subject"
+        label="Subject Name"
+        placeholder="e.g. Quantitative Aptitude"
+        confirmLabel="Create Subject"
+      />
+      <InputDialog
+        isOpen={renameSubjectOpen}
+        onClose={() => setRenameSubjectOpen(false)}
+        onConfirm={handleRenameSubject}
+        title="Rename Subject"
+        label="New Name"
+        placeholder="New subject name..."
+        defaultValue={subjects.find(s => s.key === activeSubKey)?.name || ''}
+        confirmLabel="Rename"
+      />
+      <ConfirmDialog
+        isOpen={deleteSubjectOpen}
+        onClose={() => setDeleteSubjectOpen(false)}
+        onConfirm={handleDeleteSubject}
+        title="Delete Subject"
+        message={`Are you sure you want to delete "${subjects.find(s => s.key === activeSubKey)?.name}"? This will permanently delete all topics, progress, and task logs.`}
+        confirmLabel="Delete Subject"
+      />
+      <InputDialog
+        isOpen={addTopicOpen}
+        onClose={() => setAddTopicOpen(false)}
+        onConfirm={handleCreateTopic}
+        title="Add New Topic"
+        label="Topic Name"
+        placeholder="e.g. Algebra, Percentages..."
+        confirmLabel="Create Topic"
+      />
+      <InputDialog
+        isOpen={renameTopicOpen}
+        onClose={() => setRenameTopicOpen(false)}
+        onConfirm={handleRenameTopic}
+        title="Rename Topic"
+        label="New Name"
+        placeholder="New topic name..."
+        defaultValue={renameTopicTarget}
+        confirmLabel="Rename"
+      />
+      <ConfirmDialog
+        isOpen={deleteTopicOpen}
+        onClose={() => setDeleteTopicOpen(false)}
+        onConfirm={handleDeleteTopic}
+        title="Delete Topic"
+        message={`Are you sure you want to delete "${deleteTopicTarget}"? This will permanently clear all its progress, resources, and daily logs.`}
+        confirmLabel="Delete Topic"
+      />
+
+      {/* === Subject Tabs (Hidden in Detail View) === */}
       {!activeTopicDetail && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border overflow-x-auto scrollbar-none gap-4 pb-2 mb-4">
-          <div className="flex gap-2">
+        <div className="bg-card border border-border rounded-2xl p-4 shadow-sm space-y-3">
+          {/* Top row: label + action buttons */}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Subjects</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setAddSubjectOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/25 rounded-lg transition-all"
+                title="Add New Subject"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Subject</span>
+              </button>
+              {subjects.length > 0 && (
+                <div className="flex items-center gap-1 bg-secondary/60 border border-border rounded-lg p-0.5">
+                  <button
+                    onClick={() => setRenameSubjectOpen(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-background rounded-md transition-all"
+                    title="Rename Active Subject"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Rename</span>
+                  </button>
+                  <div className="w-px h-4 bg-border" />
+                  <button
+                    onClick={() => setDeleteSubjectOpen(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/10 rounded-md transition-all"
+                    title="Delete Active Subject"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Subject pill tabs */}
+          <div className="flex flex-wrap gap-2">
             {subjects.map(sub => {
               const isActive = activeSubKey === sub.key;
               const stats = topicProgress.filter(t => t.subjectKey === sub.key);
               const comp = stats.length > 0 ? Math.round((stats.filter(t => t.completed).length / stats.length) * 100) : 0;
+              const doneCount = stats.filter(t => t.completed).length;
               return (
                 <button
                   key={sub.key}
@@ -936,204 +1072,223 @@ export default function SubjectsView() {
                     setSearchQuery('');
                     setSearchParams({});
                   }}
-                  className={`px-4 py-2.5 font-semibold text-sm border-b-2 whitespace-nowrap transition-all flex items-center gap-2 ${
-                    isActive 
-                      ? 'border-primary text-primary font-bold' 
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  className={`flex items-center gap-2.5 px-4 py-2 rounded-xl font-semibold text-sm whitespace-nowrap transition-all border ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20 scale-[1.02]'
+                      : 'bg-secondary/60 text-muted-foreground border-border hover:bg-secondary hover:text-foreground hover:border-border'
                   }`}
                 >
                   <span>{sub.name}</span>
-                  <span className="text-[10px] bg-secondary text-muted-foreground px-1.5 py-0.5 rounded-full">
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-background/80 text-muted-foreground'
+                  }`}>
+                    {doneCount}/{stats.length}
+                  </span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                    isActive
+                      ? 'bg-white/15 text-primary-foreground/80'
+                      : 'bg-muted text-muted-foreground/70'
+                  }`}>
                     {comp}%
                   </span>
                 </button>
               );
             })}
-          </div>
-
-          {/* Subject Actions */}
-          <div className="flex items-center gap-1 px-4 py-1.5 bg-muted/10 rounded-lg border border-border/40 shrink-0 select-none">
-            <button
-              onClick={handleCreateSubject}
-              className="p-1.5 text-primary hover:bg-primary/10 rounded transition-all flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
-              title="Add New Subject"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Subj</span>
-            </button>
-            {subjects.length > 0 && (
-              <>
-                <div className="w-[1px] h-3.5 bg-border mx-1"></div>
-                <button
-                  onClick={handleRenameSubject}
-                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-all flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
-                  title="Rename Active Subject"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>Rename</span>
-                </button>
-                <div className="w-[1px] h-3.5 bg-border mx-1"></div>
-                <button
-                  onClick={handleDeleteSubject}
-                  className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
-                  title="Delete Active Subject"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete</span>
-                </button>
-              </>
+            {subjects.length === 0 && (
+              <span className="text-sm text-muted-foreground italic">No subjects yet — click "New Subject" to get started.</span>
             )}
           </div>
         </div>
       )}
 
-      {/* Main Details View vs Cards List */}
+      {/* === Main Content === */}
       {activeTopicDetail ? (
-        // ==============================================================
-        // TOPIC DETAILS PAGE VIEW
-        // ==============================================================
-        <div className="space-y-6">
-          {/* Breadcrumb / Navigation */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
-            <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground font-semibold">
-              <button 
-                onClick={() => {
-                  setSearchParams({});
-                  setSelectedHeatmapDay(null);
-                }} 
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg border border-border/80 transition-all shadow-sm"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Syllabus</span>
-              </button>
-              <span className="text-border">/</span>
-              <span>{activeSubject?.name || ''}</span>
-              <span className="text-border">/</span>
-              <span className="text-foreground font-bold font-outfit">{activeTopicDetail.topic}</span>
-            </div>
-          </div>
-
-          {/* Topic Title & Complete Button */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card border border-border p-5 rounded-xl shadow-sm">
-            <div>
-              <span className="text-[10px] text-primary font-bold uppercase tracking-wider">Active Topic Workspace</span>
-              <h2 className="text-xl font-bold font-outfit text-foreground tracking-tight flex items-center gap-3 mt-0.5">
-                {activeTopicDetail.topic}
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Maintain your daily streak. Track your progress, update study files, and log questions.
-              </p>
-            </div>
-            
+        // =====================================================================
+        // TOPIC DETAIL VIEW
+        // =====================================================================
+        <div className="space-y-5">
+          {/* Back Navigation */}
+          <div className="flex items-center gap-2 text-xs">
             <button
-              onClick={() => handleTopicCompletedToggle(activeTopicDetail)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all shadow-sm shrink-0 ${
-                activeTopicDetail.completed 
-                  ? 'bg-primary border-primary text-primary-foreground shadow-md shadow-primary/10' 
-                  : 'bg-background hover:bg-muted border-border text-foreground'
-              }`}
+              onClick={() => { setSearchParams({}); setSelectedHeatmapDay(null); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg border border-border/80 transition-all font-semibold"
             >
-              <CheckCircle className={`w-4 h-4 ${activeTopicDetail.completed ? 'fill-current' : ''}`} />
-              <span>{activeTopicDetail.completed ? 'Topic Completed ✓' : 'Mark Topic Completed'}</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to {activeSubject?.name || 'Syllabus'}</span>
             </button>
+            <ChevronRight className="w-3 h-3 text-muted-foreground/40" />
+            <span className="text-muted-foreground font-semibold">{activeSubject?.name}</span>
+            <ChevronRight className="w-3 h-3 text-muted-foreground/40" />
+            <span className="text-foreground font-bold">{activeTopicDetail.topic}</span>
           </div>
 
-          {/* Details Content Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            
-            {/* Left 2 Columns: Settings, Notes, Day Log, Resources */}
-            <div className="xl:col-span-2 space-y-6">
-              
-              {/* parameters row */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-card border border-border p-5 rounded-xl shadow-sm">
-                <div>
-                  <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Priority
-                  </label>
-                  <select
-                    value={activeTopicDetail.priority}
-                    onChange={(e) => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { priority: e.target.value })}
-                    className="w-full bg-background border border-border rounded-lg text-sm px-2.5 py-1.5 text-foreground focus:outline-none focus:border-primary transition-all"
-                  >
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
+          {/* Topic Hero Header */}
+          <div className="relative bg-card border border-border rounded-2xl p-6 shadow-sm overflow-hidden">
+            {/* Background gradient accent */}
+            <div
+              className="absolute inset-0 opacity-[0.035] pointer-events-none"
+              style={{ background: 'radial-gradient(ellipse at top left, hsl(var(--primary)) 0%, transparent 60%)' }}
+            />
+            <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <span className="text-[10px] text-primary font-bold uppercase tracking-wider bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">
+                    {activeSubject?.name || 'Subject'}
+                  </span>
+                  <PriorityBadge priority={activeTopicDetail.priority} />
+                  <DifficultyBadge difficulty={activeTopicDetail.difficulty} />
+                  <StatusBadge status={activeTopicDetail.status} />
                 </div>
+                <h1 className="text-2xl font-bold font-outfit text-foreground tracking-tight">{activeTopicDetail.topic}</h1>
+                <p className="text-xs text-muted-foreground mt-1.5 font-medium">
+                  Track daily progress, manage study resources, and log question counts.
+                </p>
+              </div>
 
-                <div>
-                  <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Difficulty
-                  </label>
-                  <select
-                    value={activeTopicDetail.difficulty}
-                    onChange={(e) => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { difficulty: e.target.value })}
-                    className="w-full bg-background border border-border rounded-lg text-sm px-2.5 py-1.5 text-foreground focus:outline-none focus:border-primary transition-all"
-                  >
-                    <option value="Easy">Easy</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Hard">Hard</option>
-                  </select>
+              <button
+                onClick={() => handleTopicCompletedToggle(activeTopicDetail)}
+                className={`px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 border transition-all shadow-sm shrink-0 ${
+                  activeTopicDetail.completed
+                    ? 'bg-primary border-primary text-primary-foreground shadow-primary/20 shadow-md'
+                    : 'bg-background hover:bg-muted border-border text-foreground hover:border-primary/40'
+                }`}
+              >
+                <CheckCircle className={`w-4 h-4 ${activeTopicDetail.completed ? 'fill-current' : ''}`} />
+                <span>{activeTopicDetail.completed ? 'Completed ✓' : 'Mark Complete'}</span>
+              </button>
+            </div>
+
+            {/* Quick Stats Row */}
+            <div className="grid grid-cols-3 gap-3 mt-5 pt-4 border-t border-border/60">
+              {[
+                {
+                  icon: <Flame className="w-4 h-4 text-orange-500" />,
+                  label: 'Days Logged',
+                  value: `${activeTopicDetail.dailyChecks.filter(c => c.done).length} / ${user?.targetDays || 60}`,
+                  sub: `${Math.round((activeTopicDetail.dailyChecks.filter(c => c.done).length / (user?.targetDays || 60)) * 100)}% done`
+                },
+                {
+                  icon: <Target className="w-4 h-4 text-blue-500" />,
+                  label: 'Daily Qs',
+                  value: activeTopicDetail.dailyChecks.reduce((s, c) => s + (c.questions || 0), 0),
+                  sub: 'questions tracked'
+                },
+                {
+                  icon: <Award className="w-4 h-4 text-primary" />,
+                  label: 'General Qs',
+                  value: activeTopicDetail.questions || 0,
+                  sub: 'total solved'
+                },
+              ].map((stat, i) => (
+                <div key={i} className="flex items-start gap-3 bg-background/70 border border-border/60 rounded-xl p-3">
+                  <div className="p-1.5 bg-secondary rounded-lg shrink-0">{stat.icon}</div>
+                  <div className="min-w-0">
+                    <span className="block text-[9px] text-muted-foreground font-bold uppercase tracking-wider">{stat.label}</span>
+                    <span className="block text-lg font-bold text-foreground font-outfit leading-tight">{stat.value}</span>
+                    <span className="block text-[10px] text-muted-foreground/80">{stat.sub}</span>
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
 
-                <div>
-                  <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Study Status
-                  </label>
-                  <select
-                    value={activeTopicDetail.status}
-                    onChange={(e) => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { 
-                      status: e.target.value,
-                      completed: e.target.value === 'Completed'
-                    })}
-                    className="w-full bg-background border border-border rounded-lg text-sm px-2.5 py-1.5 text-foreground focus:outline-none focus:border-primary transition-all"
-                  >
-                    <option value="Not Started">Not Started</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Revision">Revision</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </div>
+          {/* Detail Grid */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
 
-                <div>
-                  <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    General Qs Solved
-                  </label>
-                  <div className="flex items-center border border-border rounded-lg bg-background overflow-hidden focus-within:border-primary transition-all">
-                    <button
-                      onClick={() => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { questions: Math.max(0, (activeTopicDetail.questions || 0) - 5) })}
-                      className="px-2 py-1.5 hover:bg-muted text-muted-foreground border-r border-border transition-colors shrink-0"
+            {/* Left 2 Cols */}
+            <div className="xl:col-span-2 space-y-5">
+
+              {/* Parameters Panel */}
+              <div className="bg-card border border-border p-5 rounded-2xl shadow-sm">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <BarChart2 className="w-3.5 h-3.5" />
+                  Topic Settings
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Priority</label>
+                    <select
+                      value={activeTopicDetail.priority}
+                      onChange={e => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { priority: e.target.value })}
+                      className="w-full bg-background border border-border rounded-lg text-sm px-3 py-2 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all cursor-pointer"
                     >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <input
-                      type="number"
-                      min="0"
-                      value={activeTopicDetail.questions || 0}
-                      onChange={(e) => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { questions: parseInt(e.target.value) || 0 })}
-                      className="w-full text-center bg-transparent text-xs text-foreground focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-bold"
-                    />
-                    <button
-                      onClick={() => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { questions: (activeTopicDetail.questions || 0) + 5 })}
-                      className="px-2 py-1.5 hover:bg-muted text-muted-foreground border-l border-border transition-colors shrink-0"
+                      <option value="High">🔴 High</option>
+                      <option value="Medium">🟡 Medium</option>
+                      <option value="Low">🟢 Low</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Difficulty</label>
+                    <select
+                      value={activeTopicDetail.difficulty}
+                      onChange={e => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { difficulty: e.target.value })}
+                      className="w-full bg-background border border-border rounded-lg text-sm px-3 py-2 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all cursor-pointer"
                     >
-                      <Plus className="w-3 h-3" />
-                    </button>
+                      <option value="Easy">😊 Easy</option>
+                      <option value="Medium">😐 Medium</option>
+                      <option value="Hard">😤 Hard</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Status</label>
+                    <select
+                      value={activeTopicDetail.status}
+                      onChange={e => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, {
+                        status: e.target.value,
+                        completed: e.target.value === 'Completed'
+                      })}
+                      className="w-full bg-background border border-border rounded-lg text-sm px-3 py-2 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all cursor-pointer"
+                    >
+                      <option value="Not Started">⬜ Not Started</option>
+                      <option value="In Progress">🔵 In Progress</option>
+                      <option value="Revision">🔄 Revision</option>
+                      <option value="Completed">✅ Completed</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">General Qs Solved</label>
+                    <div className="flex items-center border border-border rounded-lg bg-background overflow-hidden focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30 transition-all">
+                      <button
+                        onClick={() => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { questions: Math.max(0, (activeTopicDetail.questions || 0) - 5) })}
+                        className="px-2.5 py-2 hover:bg-muted text-muted-foreground border-r border-border transition-colors shrink-0"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <input
+                        type="number"
+                        min="0"
+                        value={activeTopicDetail.questions || 0}
+                        onChange={e => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { questions: parseInt(e.target.value) || 0 })}
+                        className="w-full text-center bg-transparent text-sm text-foreground focus:outline-none font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <button
+                        onClick={() => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { questions: (activeTopicDetail.questions || 0) + 5 })}
+                        className="px-2.5 py-2 hover:bg-muted text-muted-foreground border-l border-border transition-colors shrink-0"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Day Study Log Detail Input */}
-              <div className="bg-card border border-border p-5 rounded-xl shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border/60 pb-3 gap-2">
+              {/* Daily Log Panel */}
+              <div className="bg-card border border-border p-5 rounded-2xl shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-primary" />
-                    <h3 className="font-bold text-sm text-foreground">
-                      Daily Target Log — Day {activeDetailDay} {activeDetailDay === currentDay ? '(Today)' : ''}
-                    </h3>
+                    <div>
+                      <h3 className="font-bold text-sm text-foreground">Daily Log</h3>
+                      <span className="text-[10px] text-muted-foreground">Day {activeDetailDay} {activeDetailDay === currentDay ? '— Today' : ''}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground font-semibold">Done:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground font-semibold">Status:</span>
                     {activeDetailDay === currentDay ? (
                       <button
                         onClick={() => {
@@ -1141,44 +1296,41 @@ export default function SubjectsView() {
                           const isDone = dailyCheck ? dailyCheck.done : false;
                           handleToggleDailyDone(activeDetailDay, isDone);
                         }}
-                        className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 transition-all shadow-sm ${
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold border flex items-center gap-2 transition-all ${
                           (activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay)?.done)
-                            ? 'bg-primary/10 border-primary/20 text-primary'
-                            : 'bg-secondary border-border text-muted-foreground hover:border-primary/40'
+                            ? 'bg-primary/10 border-primary/30 text-primary shadow-sm'
+                            : 'bg-secondary border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
                         }`}
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                        <span>{(activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay)?.done) ? 'Done' : 'Pending'}</span>
+                        <span className={`w-2 h-2 rounded-full ${(activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay)?.done) ? 'bg-primary' : 'bg-muted-foreground/40'}`} />
+                        <span>{(activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay)?.done) ? 'Done ✓' : 'Mark Done'}</span>
                       </button>
                     ) : (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full">
-                        <Lock className="w-3 h-3 text-muted-foreground/60" />
-                        <span>{(activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay)?.done) ? 'Completed (Locked)' : 'Pending (Locked)'}</span>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full border border-border">
+                        <Lock className="w-3 h-3" />
+                        <span>{(activeTopicDetail.dailyChecks.find(c => c.day === activeDetailDay)?.done) ? 'Completed' : 'Pending'} (Locked)</span>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {activeDetailDay > currentDay && (
-                  <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400 p-2.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-fade-in">
+                  <div className="bg-amber-500/8 border border-amber-500/20 text-amber-600 dark:text-amber-400 p-3 rounded-xl text-xs font-semibold flex items-center gap-2">
                     <Lock className="w-3.5 h-3.5 shrink-0" />
-                    <span>Future study day logs (Day {activeDetailDay}) are locked. You can only log progress for today or past days.</span>
+                    <span>Future day logs are locked. You can only edit today or past days.</span>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-                  
-                  {/* Daily Questions */}
+                  {/* Questions */}
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                      Questions Solved
-                    </label>
-                    <div className="flex items-center border border-border rounded-lg bg-background overflow-hidden focus-within:border-primary transition-all">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Questions Solved</label>
+                    <div className="flex items-center border border-border rounded-xl bg-background overflow-hidden focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30 transition-all">
                       <button
                         type="button"
                         onClick={() => setLocalQuestions(q => Math.max(0, q - 5))}
                         disabled={activeDetailDay > currentDay}
-                        className="px-2.5 py-1.5 hover:bg-muted text-muted-foreground border-r border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-3 py-2 hover:bg-muted text-muted-foreground border-r border-border transition-colors disabled:opacity-40"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -1186,15 +1338,15 @@ export default function SubjectsView() {
                         type="number"
                         min="0"
                         value={localQuestions}
-                        onChange={(e) => setLocalQuestions(parseInt(e.target.value) || 0)}
+                        onChange={e => setLocalQuestions(parseInt(e.target.value) || 0)}
                         disabled={activeDetailDay > currentDay}
-                        className="w-full text-center bg-transparent text-sm text-foreground focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full text-center bg-transparent text-sm text-foreground focus:outline-none font-bold disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                       <button
                         type="button"
                         onClick={() => setLocalQuestions(q => q + 5)}
                         disabled={activeDetailDay > currentDay}
-                        className="px-2.5 py-1.5 hover:bg-muted text-muted-foreground border-l border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-3 py-2 hover:bg-muted text-muted-foreground border-l border-border transition-colors disabled:opacity-40"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -1203,50 +1355,51 @@ export default function SubjectsView() {
 
                   {/* Daily Note */}
                   <div className="md:col-span-2 space-y-1.5">
-                    <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                       <MessageSquare className="w-3 h-3 text-primary" />
-                      Study Notes / Formulas / Outline
+                      Study Notes / Key Takeaways
                     </label>
                     <textarea
-                      placeholder="Write formulas, key lessons or summary notes for this day..."
+                      placeholder="Write formulas, key lessons or summary for this day..."
                       value={localNote}
-                      onChange={(e) => setLocalNote(e.target.value)}
+                      onChange={e => setLocalNote(e.target.value)}
                       disabled={activeDetailDay > currentDay}
-                      className="w-full bg-background border border-border rounded-lg text-sm px-3 py-1.5 text-foreground focus:outline-none focus:border-primary h-[38px] min-h-[38px] max-h-[120px] resize-y transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-background border border-border rounded-xl text-sm px-3 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 h-[42px] min-h-[42px] max-h-[120px] resize-y transition-all disabled:opacity-50"
                     />
                   </div>
-
                 </div>
 
                 <div className="flex justify-end pt-1 border-t border-border/60">
                   <button
                     onClick={handleSaveDailyLog}
                     disabled={activeDetailDay > currentDay}
-                    className="px-4 py-1.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-5 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
+                    <CheckCircle className="w-3.5 h-3.5" />
                     <span>Save Day {activeDetailDay} Log</span>
                   </button>
                 </div>
               </div>
 
-              {/* General Outline Note */}
-              <div className="bg-card border border-border p-5 rounded-xl shadow-sm space-y-3">
-                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  General Topic Notes (Master Outline)
-                </label>
+              {/* General Notes */}
+              <div className="bg-card border border-border p-5 rounded-2xl shadow-sm space-y-3">
+                <div>
+                  <h3 className="font-bold text-sm text-foreground">Master Topic Notes</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Core concepts, formulas, video links, textbook references.</p>
+                </div>
                 <textarea
                   placeholder="Core concepts, video links, textbook references, formulas..."
                   value={activeTopicDetail.notes || ''}
-                  onChange={(e) => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { notes: e.target.value })}
-                  className="w-full bg-background border border-border rounded-xl text-sm px-4 py-3 text-foreground focus:outline-none focus:border-primary h-36 resize-y transition-all"
+                  onChange={e => updateTopicProgress(activeTopicDetail.subjectKey, activeTopicDetail.topic, { notes: e.target.value })}
+                  className="w-full bg-background border border-border rounded-xl text-sm px-4 py-3 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 h-36 resize-y transition-all"
                 />
               </div>
 
-              {/* Study materials */}
-              <div className="bg-card border border-border p-5 rounded-xl shadow-sm space-y-4">
+              {/* Resources Panel */}
+              <div className="bg-card border border-border p-5 rounded-2xl shadow-sm space-y-4">
                 <div>
-                  <h3 className="font-bold text-sm text-foreground">Topic Resources & Study Files</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Upload PDFs, images, or save YouTube tutorial link mappings.</p>
+                  <h3 className="font-bold text-sm text-foreground">Study Resources</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Upload PDFs, images, or save YouTube links for this topic.</p>
                 </div>
                 <TopicResourceExplorer
                   progress={activeTopicDetail}
@@ -1255,20 +1408,32 @@ export default function SubjectsView() {
                   deleteTopicResource={deleteTopicResource}
                 />
               </div>
-
             </div>
 
-            {/* Right Column: 60-Day Map */}
-            <div className="xl:col-span-1 space-y-6">
-              
-              <div className="bg-card border border-border p-5 rounded-xl shadow-sm space-y-4">
+            {/* Right Column: Heatmap + Stats */}
+            <div className="xl:col-span-1 space-y-5">
+              <div className="bg-card border border-border p-5 rounded-2xl shadow-sm space-y-4 sticky top-4">
                 <div>
-                  <h3 className="font-bold text-sm text-foreground">Syllabus Progress Map</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Select a day cell to view or update logs.</p>
+                  <h3 className="font-bold text-sm text-foreground">60-Day Progress Map</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Click a day cell to view or edit its log.</p>
+                </div>
+
+                {/* Progress bar */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[10px] font-bold text-muted-foreground">
+                    <span>COMPLETION</span>
+                    <span>{Math.round((activeTopicDetail.dailyChecks.filter(c => c.done).length / (user?.targetDays || 60)) * 100)}%</span>
+                  </div>
+                  <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-primary h-full rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round((activeTopicDetail.dailyChecks.filter(c => c.done).length / (user?.targetDays || 60)) * 100)}%` }}
+                    />
+                  </div>
                 </div>
 
                 {/* Heatmap Grid */}
-                <div className="grid grid-cols-10 gap-2 border border-border/80 bg-background/50 p-3.5 rounded-lg justify-items-center">
+                <div className="grid grid-cols-10 gap-1.5 p-3 bg-background/60 border border-border/60 rounded-xl justify-items-center">
                   {Array.from({ length: user?.targetDays || 60 }).map((_, idx) => {
                     const dayNum = idx + 1;
                     const cell = activeTopicDetail.dailyChecks.find(c => c.day === dayNum);
@@ -1283,138 +1448,114 @@ export default function SubjectsView() {
                         key={dayNum}
                         type="button"
                         onClick={() => setSelectedHeatmapDay(dayNum)}
-                        title={`Day ${dayNum}${isToday ? ' (Today)' : ''} - Click to edit log\nStatus: ${isDone ? 'Completed' : 'Pending'}${hasNote ? '\nNote: ' + cell.note : ''}${dailyQ ? '\nQs: ' + dailyQ : ''}`}
-                        className={`w-7 h-7 rounded shrink-0 flex items-center justify-center text-[10px] font-bold transition-all relative ${
-                          isDone 
-                            ? 'bg-primary border border-primary text-primary-foreground shadow-sm shadow-primary/15 hover:bg-primary/90' 
+                        title={`Day ${dayNum}${isToday ? ' (Today)' : ''}\nStatus: ${isDone ? '✓ Done' : '○ Pending'}${hasNote ? '\n📝 Note' : ''}${dailyQ ? `\n❓ ${dailyQ} Qs` : ''}`}
+                        className={`w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[9px] font-bold transition-all relative ${
+                          isDone
+                            ? 'bg-primary text-primary-foreground shadow-sm'
                             : isToday
-                              ? 'border-2 border-primary bg-primary/10 text-primary animate-pulse'
-                              : 'bg-muted border border-border/60 text-muted-foreground hover:bg-secondary/80'
-                        } ${isSelected ? 'ring-2 ring-foreground/45 ring-offset-2 scale-110 z-10' : ''}`}
+                              ? 'border-2 border-primary bg-primary/10 text-primary'
+                              : 'bg-secondary/60 border border-border/40 text-muted-foreground/60 hover:bg-secondary'
+                        } ${isSelected ? 'ring-2 ring-foreground/50 ring-offset-1 scale-110 z-10' : 'hover:scale-105'}`}
                       >
                         {dayNum}
-                        {!isToday && !isDone && (
-                          <span className="absolute -top-0.5 -right-0.5 text-muted-foreground/30">
-                            <Lock className="w-[6px] h-[6px]" />
-                          </span>
-                        )}
-                        {hasNote && (
-                          <span className="absolute bottom-0.5 right-0.5 w-1 h-1 rounded-full bg-amber-400" />
-                        )}
-                        {dailyQ > 0 && (
-                          <span className="absolute bottom-0.5 left-0.5 w-1 h-1 rounded-full bg-blue-400" />
-                        )}
+                        {hasNote && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 border border-card" />}
+                        {dailyQ > 0 && <span className="absolute -bottom-0.5 -left-0.5 w-1.5 h-1.5 rounded-full bg-blue-400 border border-card" />}
                       </button>
                     );
                   })}
                 </div>
 
                 {/* Legend */}
-                <div className="pt-2 border-t border-border/60 space-y-2 text-[10px]">
-                  <div className="flex items-center justify-between text-muted-foreground font-semibold">
-                    <span>GRID LEGEND</span>
-                    <span>DAY {currentDay} ACTIVE</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                <div className="space-y-2 text-[10px] border-t border-border/60 pt-3">
+                  <div className="grid grid-cols-2 gap-1.5 text-muted-foreground">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3.5 h-3.5 rounded bg-primary border border-primary" />
-                      <span>Logged (Done)</span>
+                      <div className="w-3.5 h-3.5 rounded-md bg-primary" />
+                      <span>Done</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3.5 h-3.5 rounded bg-muted border border-border" />
+                      <div className="w-3.5 h-3.5 rounded-md bg-secondary border border-border" />
                       <span>Pending</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3.5 h-3.5 rounded border-2 border-primary bg-primary/10" />
-                      <span>Today (Day {currentDay})</span>
+                      <div className="w-3.5 h-3.5 rounded-md border-2 border-primary bg-primary/10" />
+                      <span>Today (D{currentDay})</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3.5 h-3.5 rounded bg-muted border border-border flex items-center justify-center text-[7px] text-muted-foreground/50">🔒</div>
-                      <span>Locked Checkbox</span>
+                      <div className="w-3.5 h-3.5 rounded-md bg-secondary border-2 border-foreground/40 scale-110" />
+                      <span>Selected</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 pt-1.5 text-[9px] text-muted-foreground border-t border-border/40 font-mono">
+                  <div className="flex items-center gap-4 pt-1 text-[9px] font-mono text-muted-foreground border-t border-border/40">
                     <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span className="w-2 h-2 rounded-full bg-amber-400" />
                       <span>Has Note</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                      <span className="w-2 h-2 rounded-full bg-blue-400" />
                       <span>Has Qs</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Stats Summary Widget */}
-                <div className="bg-secondary/35 border border-border/80 p-3 rounded-lg space-y-2 text-xs">
-                  <span className="block font-bold text-[9px] uppercase tracking-wider text-muted-foreground">Syllabus Stats</span>
-                  
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-card border border-border p-2 rounded-md">
-                      <span className="block text-[9px] text-muted-foreground">Days Checked</span>
-                      <span className="font-bold text-sm text-primary">
-                        {activeTopicDetail.dailyChecks.filter(c => c.done).length} / {user?.targetDays || 60}
-                      </span>
+                {/* Mini Stats */}
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                  {[
+                    { label: 'Days Logged', value: `${activeTopicDetail.dailyChecks.filter(c => c.done).length}/${user?.targetDays || 60}`, color: 'text-primary' },
+                    { label: 'Daily Qs', value: `${activeTopicDetail.dailyChecks.reduce((sum, c) => sum + (c.questions || 0), 0)}`, color: 'text-foreground' },
+                  ].map((stat, i) => (
+                    <div key={i} className="bg-background border border-border/60 p-3 rounded-xl text-center">
+                      <span className="block text-[9px] text-muted-foreground font-bold uppercase tracking-wider">{stat.label}</span>
+                      <span className={`block text-xl font-bold font-outfit ${stat.color}`}>{stat.value}</span>
                     </div>
-                    <div className="bg-card border border-border p-2 rounded-md">
-                      <span className="block text-[9px] text-muted-foreground">Total Daily Qs</span>
-                      <span className="font-bold text-sm text-foreground">
-                        {activeTopicDetail.dailyChecks.reduce((sum, c) => sum + (c.questions || 0), 0)} Qs
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-primary h-full rounded-full transition-all duration-300"
-                      style={{ width: `${Math.round((activeTopicDetail.dailyChecks.filter(c => c.done).length / (user?.targetDays || 60)) * 100)}%` }}
-                    ></div>
-                  </div>
+                  ))}
                 </div>
               </div>
-
             </div>
-
           </div>
-
         </div>
       ) : (
-        // ==============================================================
+        // =====================================================================
         // TOPIC CARDS GRID
-        // ==============================================================
-        <div className="space-y-6">
-          {/* Subject Stats & Filters Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card border border-border p-4 rounded-xl shadow-sm">
-            <div className="flex-1">
-              <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground mb-1">
-                <span>SUBJECT PROGRESS ({activeSubject?.name || ''})</span>
-                <span>{getSubjectCompletion()}% Completed</span>
+        // =====================================================================
+        <div className="space-y-5">
+          {/* Header Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-4 rounded-2xl shadow-sm">
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between items-center text-[10px] font-bold text-muted-foreground mb-1.5">
+                <span>SUBJECT PROGRESS — {activeSubject?.name?.toUpperCase() || ''}</span>
+                <span className="text-primary">{completion}% DONE</span>
               </div>
               <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                <div 
-                  className="bg-primary h-full rounded-full transition-all duration-300"
-                  style={{ width: `${getSubjectCompletion()}%` }}
-                ></div>
+                <div
+                  className="bg-primary h-full rounded-full transition-all duration-500"
+                  style={{ width: `${completion}%` }}
+                />
+              </div>
+              <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground font-semibold">
+                <span>{activeProgress.filter(p => p.completed).length} completed</span>
+                <span>·</span>
+                <span>{activeProgress.filter(p => p.status === 'In Progress').length} in progress</span>
+                <span>·</span>
+                <span>{activeProgress.filter(p => p.status === 'Not Started').length} not started</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
               <button
-                onClick={handleCreateTopic}
-                className="bg-primary text-primary-foreground font-semibold px-3 py-1.5 rounded-lg hover:bg-primary/95 transition-all text-xs flex items-center justify-center gap-1 shadow-sm shrink-0"
+                onClick={() => setAddTopicOpen(true)}
+                className="bg-primary text-primary-foreground font-bold px-4 py-2 rounded-xl hover:bg-primary/90 transition-all text-xs flex items-center gap-1.5 shadow-sm shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Topic</span>
               </button>
-
-              <div className="relative w-full md:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search topics..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-1.5 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-4 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm transition-all"
                 />
               </div>
             </div>
@@ -1422,9 +1563,12 @@ export default function SubjectsView() {
 
           {/* Cards Grid */}
           {filteredProgress.length === 0 ? (
-            <div className="text-center py-12 bg-card border border-border rounded-xl text-muted-foreground text-sm">
-              <AlertCircle className="w-8 h-8 mx-auto mb-2 text-muted-foreground/60" />
-              No topics found matching your filter.
+            <div className="text-center py-16 bg-card border border-border rounded-2xl text-muted-foreground">
+              <BookOpen className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
+              <p className="font-semibold text-sm">No topics found</p>
+              <p className="text-xs mt-1 text-muted-foreground/70">
+                {searchQuery ? `No topics match "${searchQuery}"` : 'Click "Add Topic" to create your first topic.'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1435,99 +1579,77 @@ export default function SubjectsView() {
                 const progressPercent = Math.round((doneDaysCount / (user?.targetDays || 60)) * 100);
                 const todayCell = p.dailyChecks.find(c => c.day === currentDay);
                 const isTodayChecked = todayCell ? todayCell.done : false;
-                // Distinct card style based on priority (soft borders/backgrounds instead of a thick left border)
-                const priorityCardClass = 
-                  p.priority === 'High' 
-                    ? 'border-red-500/20 hover:border-red-500/50 bg-red-500/[0.02] dark:bg-red-500/[0.01]' 
-                    : p.priority === 'Medium' 
-                      ? 'border-yellow-500/20 hover:border-yellow-500/50 bg-yellow-500/[0.02] dark:bg-yellow-500/[0.01]' 
-                      : 'border-green-500/20 hover:border-green-500/50 bg-green-500/[0.02] dark:bg-green-500/[0.01]';
+
+                // Rich priority theming
+                const priorityTheme = p.priority === 'High'
+                  ? {
+                      border: 'border-red-500/40',
+                      stripe: 'bg-red-500',
+                      headerBg: 'bg-red-500/8 dark:bg-red-500/10',
+                      hover: 'hover:border-red-500/60 hover:shadow-red-500/10',
+                      progressBar: 'bg-red-500',
+                    }
+                  : p.priority === 'Medium'
+                  ? {
+                      border: 'border-amber-500/40',
+                      stripe: 'bg-amber-500',
+                      headerBg: 'bg-amber-500/8 dark:bg-amber-500/10',
+                      hover: 'hover:border-amber-500/60 hover:shadow-amber-500/10',
+                      progressBar: 'bg-amber-500',
+                    }
+                  : {
+                      border: 'border-emerald-500/35',
+                      stripe: 'bg-emerald-500',
+                      headerBg: 'bg-emerald-500/8 dark:bg-emerald-500/10',
+                      hover: 'hover:border-emerald-500/55 hover:shadow-emerald-500/10',
+                      progressBar: 'bg-emerald-500',
+                    };
+
+                const progressColor =
+                  progressPercent >= 80 ? 'bg-emerald-500'
+                    : progressPercent >= 50 ? 'bg-primary'
+                      : progressPercent >= 25 ? 'bg-amber-500'
+                        : 'bg-muted-foreground/30';
 
                 return (
                   <div
                     key={p.topic}
                     onClick={() => setSearchParams({ topic: p.topic })}
-                    className={`group ${priorityCardClass} border rounded-xl p-4 flex flex-col justify-between hover:-translate-y-0.5 hover:shadow-md transition-all duration-300 cursor-pointer relative min-w-0`}
+                    className={`group bg-card border ${priorityTheme.border} ${priorityTheme.hover} rounded-2xl flex flex-col hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200 cursor-pointer relative overflow-hidden`}
                   >
-                    <div>
-                      {/* Top Badges row */}
-                      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                          p.priority === 'High' 
-                            ? 'bg-red-500/10 text-red-500' 
-                            : p.priority === 'Medium'
-                              ? 'bg-yellow-500/10 text-yellow-500' 
-                              : 'bg-green-500/10 text-green-500'
-                        }`}>
-                          {p.priority}
-                        </span>
+                    {/* Colored left accent stripe */}
+                    <div className={`absolute left-0 inset-y-0 w-1 ${priorityTheme.stripe} rounded-l-2xl`} />
 
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                          p.difficulty === 'Hard' 
-                            ? 'bg-purple-500/10 text-purple-500' 
-                            : p.difficulty === 'Medium'
-                              ? 'bg-blue-500/10 text-blue-500' 
-                              : 'bg-slate-500/10 text-slate-500'
-                        }`}>
-                          {p.difficulty}
-                        </span>
-
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ml-auto ${
-                          p.status === 'Completed' 
-                            ? 'bg-green-500/10 text-green-500' 
-                            : p.status === 'Revision'
-                              ? 'bg-orange-500/10 text-orange-500'
-                              : p.status === 'In Progress'
-                                ? 'bg-indigo-500/10 text-indigo-500'
-                                : 'bg-muted text-muted-foreground border border-border'
-                        }`}>
-                          {p.status}
-                        </span>
-                      </div>
-
-                      {/* Header Topic Title & Completion Toggle */}
-                      <div className="flex items-start gap-2.5 min-w-0 mb-3.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTopicCompletedToggle(p);
-                          }}
-                          className={`w-4.5 h-4.5 rounded border flex items-center justify-center shrink-0 transition-all ${
-                            p.completed 
-                              ? 'bg-primary border-primary text-primary-foreground' 
-                              : 'border-border hover:border-primary/50 text-transparent'
-                          }`}
-                        >
-                          <span className="text-[10px]">✓</span>
-                        </button>
-                        
-                        <h3 className={`font-bold text-base font-outfit leading-snug transition-colors group-hover:text-primary min-w-0 break-words ${
-                          p.completed ? 'text-muted-foreground line-through font-semibold' : 'text-foreground'
-                        }`} title={p.topic}>
-                          {p.topic}
-                        </h3>
-
-                        {/* Edit and Delete Topic buttons (visible on hover) */}
-                        <div className="flex items-center gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Tinted header band */}
+                    <div className={`${priorityTheme.headerBg} px-5 pt-4 pb-3 border-b border-border/50`}>
+                      {/* Badges row + hover actions */}
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <PriorityBadge priority={p.priority} />
+                          <DifficultyBadge difficulty={p.difficulty} />
+                          <StatusBadge status={p.status} />
+                        </div>
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <button
                             type="button"
-                            onClick={(e) => {
+                            onClick={e => {
                               e.stopPropagation();
-                              handleRenameTopic(p.topic);
+                              setRenameTopicTarget(p.topic);
+                              setRenameTopicOpen(true);
                             }}
-                            className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground"
+                            className="p-1.5 hover:bg-background/80 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
                             title="Rename Topic"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
-                            onClick={(e) => {
+                            onClick={e => {
                               e.stopPropagation();
-                              handleDeleteTopic(p.topic);
+                              setDeleteTopicTarget(p.topic);
+                              setDeleteTopicOpen(true);
                             }}
-                            className="p-1 hover:bg-destructive/15 rounded text-muted-foreground hover:text-destructive"
+                            className="p-1.5 hover:bg-red-500/10 rounded-lg text-muted-foreground hover:text-red-500 transition-colors"
                             title="Delete Topic"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1535,56 +1657,77 @@ export default function SubjectsView() {
                         </div>
                       </div>
 
-                      {/* Micro Progress Bar & Days Logged details */}
-                      <div className="space-y-1 mb-4">
+                      {/* Topic name + completion toggle */}
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); handleTopicCompletedToggle(p); }}
+                          className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                            p.completed
+                              ? 'bg-primary border-primary text-primary-foreground'
+                              : 'border-muted-foreground/30 hover:border-primary/60 bg-background/80'
+                          }`}
+                          title={p.completed ? 'Mark In Progress' : 'Mark Completed'}
+                        >
+                          {p.completed && <span className="text-[9px] font-bold">✓</span>}
+                        </button>
+                        <h3 className={`font-bold text-base font-outfit leading-snug transition-colors group-hover:text-primary min-w-0 break-words ${
+                          p.completed ? 'text-muted-foreground line-through' : 'text-foreground'
+                        }`}>
+                          {p.topic}
+                        </h3>
+                      </div>
+                    </div>
+
+                    {/* Card body */}
+                    <div className="px-5 py-4 flex flex-col gap-3 pl-6">
+                      {/* Progress Bar */}
+                      <div className="space-y-1.5">
                         <div className="flex justify-between items-center text-[10px] font-bold text-muted-foreground">
-                          <span>PROGRESS</span>
-                          <span>{doneDaysCount} / {user?.targetDays || 60} Days ({progressPercent}%)</span>
+                          <span>DAILY PROGRESS</span>
+                          <span>{doneDaysCount}/{user?.targetDays || 60} · {progressPercent}%</span>
                         </div>
-                        <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-primary h-full rounded-full transition-all duration-300"
+                        <div className="w-full bg-secondary/80 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className={`${progressColor} h-full rounded-full transition-all duration-300`}
                             style={{ width: `${progressPercent}%` }}
-                          ></div>
+                          />
                         </div>
                       </div>
-                    </div>
 
-                    {/* Stats Metrics row */}
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t border-border/50 pt-3 gap-2 flex-wrap">
-                      <div className="flex items-center gap-1 font-semibold" title="Daily questions solved sum">
-                        <CheckCircle className="w-3.5 h-3.5 text-primary shrink-0" />
-                        <span>{dailyQuestionsSum} Daily Qs</span>
+                      {/* Stats Footer */}
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t border-border/50 pt-2.5 gap-2 flex-wrap">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 font-semibold" title="Daily questions solved">
+                            <Zap className="w-3 h-3 text-primary" />
+                            <span>{dailyQuestionsSum} Daily Qs</span>
+                          </div>
+                          <div className="flex items-center gap-1 font-semibold" title="General questions solved">
+                            <Star className="w-3 h-3 text-amber-500" />
+                            <span>{p.questions || 0} Gen Qs</span>
+                          </div>
+                          {materialsCount > 0 && (
+                            <div className="flex items-center gap-1 font-semibold">
+                              <FileText className="w-3 h-3 text-muted-foreground" />
+                              <span>{materialsCount} files</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Today toggle */}
+                        <button
+                          type="button"
+                          onClick={e => handleCardToggleDone(p, e)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1.5 transition-all shrink-0 ${
+                            isTodayChecked
+                              ? 'bg-primary/10 border-primary/25 text-primary'
+                              : 'bg-background border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                          }`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${isTodayChecked ? 'bg-primary' : 'bg-muted-foreground/40'}`} />
+                          <span>{isTodayChecked ? `D${currentDay} Done ✓` : `Log D${currentDay}`}</span>
+                        </button>
                       </div>
-
-                      <div className="flex items-center gap-1 font-semibold" title="General questions solved">
-                        <Award className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        <span>{p.questions || 0} General Qs</span>
-                      </div>
-
-                      <div className="flex items-center gap-1 font-semibold">
-                        <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span>{materialsCount} materials</span>
-                      </div>
-                    </div>
-
-                    {/* Today Targets log Shortcut */}
-                    <div className="mt-3.5 pt-2.5 border-t border-border/50 flex items-center justify-between gap-1 flex-wrap">
-                      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide">
-                        Target D{currentDay}:
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => handleCardToggleDone(p, e)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-all ${
-                          isTodayChecked 
-                            ? 'bg-primary/10 border-primary/20 text-primary shadow-sm' 
-                            : 'bg-muted border border-border/80 text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                        }`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                        <span>{isTodayChecked ? 'Done' : 'Mark Done'}</span>
-                      </button>
                     </div>
                   </div>
                 );
@@ -1593,8 +1736,6 @@ export default function SubjectsView() {
           )}
         </div>
       )}
-
     </div>
   );
-
 }

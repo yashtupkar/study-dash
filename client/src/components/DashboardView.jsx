@@ -293,20 +293,72 @@ export default function DashboardView() {
           <FlipClock />
         </div>
 
-        {/* Motivational Quote */}
-        <div className="md:col-span-1 lg:col-span-2 bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between relative">
-          <div className="text-primary/20 absolute right-4 top-4">
-            <Quote className="w-10 h-10 fill-current" />
-          </div>
+        {/* Compact Activity Heatmap */}
+        <div className="bg-card border md:col-span-1 lg:col-span-2 border-border rounded-2xl p-5 shadow-sm flex flex-col justify-between relative min-h-[100px]">
           <div>
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">DAILY MOTIVATION</span>
-            <p className="text-sm italic font-medium leading-relaxed text-foreground/90 font-outfit">
-              "{dailyQuote}"
-            </p>
+            <div className="flex justify-between items-center ">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider font-outfit">
+                Activity Calendar
+              </span>
+              <span className="text-xs font-bold text-primary font-outfit">
+                {activeDaysCount} active days
+              </span>
+            </div>
+
+            {/* Heatmap cells aligned in a 7-row calendar grid */}
+            <div className="flex items-center justify-start py-2 ">
+              <div className="grid grid-flow-col grid-rows-7 gap-1.5">
+                {heatmapItems.map((item) => {
+                  if (item.isPadding) {
+                    return <div key={item.key} className="w-3.5 h-3.5 bg-transparent" />;
+                  }
+
+                  const dayNum = getDayNumberFromDate(item.date);
+                  const log = dayNum ? getDayLog(dayNum) : { hours: 0, completed: false };
+                  const intensity = getIntensityClass(log.hours);
+                  const isToday = dayNum === currentDay;
+                  const dateStr = getDayDateString(item.date);
+
+                  return (
+                    <div
+                      key={item.key}
+                      className="relative group"
+                    >
+                      <div
+                        className={`w-3.5 h-3.5 rounded-[3px] transition-all duration-100 cursor-pointer ${intensity} ${isToday
+                            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-background'
+                            : ''
+                          }`}
+                      />
+
+                      {/* CSS Tooltip */}
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-zinc-900 dark:bg-zinc-950 border border-zinc-800/80 text-white text-[10px] font-semibold py-1 px-2 rounded-md shadow-2xl whitespace-nowrap z-50 pointer-events-none transition-all duration-200">
+                        {dateStr}: {log.hours || 0} activities
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-4 border-t border-border/40 pt-2">
-            Rotates automatically every calendar day.
-          </p>
+
+          <div>
+            <div className="border-t border-border/40 my-3" />
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span className="truncate pr-2 font-medium">
+                Consistency tracker logs
+              </span>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[9px]">Less</span>
+                <div className="w-2.5 h-2.5 rounded-sm bg-zinc-100 dark:bg-zinc-800/60 border border-border/20"></div>
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/20 dark:bg-emerald-500/10"></div>
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/40 dark:bg-emerald-500/30"></div>
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70 dark:bg-emerald-500/60"></div>
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500 dark:bg-emerald-400"></div>
+                <span className="text-[9px]">More</span>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -373,9 +425,47 @@ export default function DashboardView() {
 
       {/* Today's Tasks & Compact Heatmap Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        
+        {/* Subject-wise Questions Solved Chart */}
+        <div className="lg:col-span-2 bg-card border border-border p-6 rounded-2xl shadow-sm">
+          <h3 className="font-bold text-lg font-outfit mb-1 flex items-center gap-2 text-foreground">
+            <TrendingUp className="w-5 h-5 text-primary" />
+            Subject-wise Questions Solved
+          </h3>
+          <p className="text-xs text-muted-foreground mb-6">
+            Track the actual quantity of practice questions solved per subject day-by-day.
+          </p>
+          <div className="w-full h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={questionsChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-zinc-800" />
+                <XAxis dataKey="name" stroke="#888888" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#888888" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
+                    borderRadius: '8px',
+                    fontSize: '12px'
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                {subjectsList.map(sub => (
+                  <Line
+                    key={sub.key}
+                    type="monotone"
+                    dataKey={sub.name}
+                    stroke={subjectLineColors[sub.key] || '#888888'}
+                    strokeWidth={2.5}
+                    activeDot={{ r: 6 }}
+                    dot={{ r: 4 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
         {/* Today's Targets Checklist */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+        <div className=" bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center mb-1">
               <h3 className="font-bold text-lg font-outfit flex items-center gap-2 text-foreground">
@@ -630,116 +720,10 @@ export default function DashboardView() {
           </div>
         </div>
 
-        {/* Compact Activity Heatmap */}
-        <div className="bg-card border border-border rounded-2xl p-5 shadow-sm flex flex-col justify-between relative min-h-[290px]">
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider font-outfit">
-                Activity Calendar
-              </span>
-              <span className="text-xs font-bold text-primary font-outfit">
-                {activeDaysCount} active days
-              </span>
-            </div>
-
-            {/* Heatmap cells aligned in a 7-row calendar grid */}
-            <div className="flex items-center justify-start py-2 overflow-x-auto">
-              <div className="grid grid-flow-col grid-rows-7 gap-1.5">
-                {heatmapItems.map((item) => {
-                  if (item.isPadding) {
-                    return <div key={item.key} className="w-3.5 h-3.5 bg-transparent" />;
-                  }
-
-                  const dayNum = getDayNumberFromDate(item.date);
-                  const log = dayNum ? getDayLog(dayNum) : { hours: 0, completed: false };
-                  const intensity = getIntensityClass(log.hours);
-                  const isToday = dayNum === currentDay;
-                  const dateStr = getDayDateString(item.date);
-
-                  return (
-                    <div
-                      key={item.key}
-                      className="relative group"
-                    >
-                      <div
-                        className={`w-3.5 h-3.5 rounded-[3px] transition-all duration-100 cursor-pointer ${intensity} ${
-                          isToday 
-                            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-background' 
-                            : ''
-                        }`}
-                      />
-                      
-                      {/* CSS Tooltip */}
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-zinc-900 dark:bg-zinc-950 border border-zinc-800/80 text-white text-[10px] font-semibold py-1 px-2 rounded-md shadow-2xl whitespace-nowrap z-50 pointer-events-none transition-all duration-200">
-                        {dateStr}: {log.hours || 0} activities
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <div className="border-t border-border/40 my-3" />
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span className="truncate pr-2 font-medium">
-                Consistency tracker logs
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                <span className="text-[9px]">Less</span>
-                <div className="w-2.5 h-2.5 rounded-sm bg-zinc-100 dark:bg-zinc-800/60 border border-border/20"></div>
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/20 dark:bg-emerald-500/10"></div>
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/40 dark:bg-emerald-500/30"></div>
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70 dark:bg-emerald-500/60"></div>
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500 dark:bg-emerald-400"></div>
-                <span className="text-[9px]">More</span>
-              </div>
-            </div>
-          </div>
-        </div>
 
       </div>
 
-      {/* Subject-wise Questions Solved Chart */}
-      <div className="bg-card border border-border p-6 rounded-2xl shadow-sm">
-        <h3 className="font-bold text-lg font-outfit mb-1 flex items-center gap-2 text-foreground">
-          <TrendingUp className="w-5 h-5 text-primary" />
-          Subject-wise Questions Solved
-        </h3>
-        <p className="text-xs text-muted-foreground mb-6">
-          Track the actual quantity of practice questions solved per subject day-by-day.
-        </p>
-        <div className="w-full h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={questionsChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-zinc-800" />
-              <XAxis dataKey="name" stroke="#888888" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis stroke="#888888" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: 'hsl(var(--card))', 
-                  borderColor: 'hsl(var(--border))',
-                  borderRadius: '8px',
-                  fontSize: '12px'
-                }} 
-              />
-              <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-              {subjectsList.map(sub => (
-                <Line 
-                  key={sub.key}
-                  type="monotone" 
-                  dataKey={sub.name} 
-                  stroke={subjectLineColors[sub.key] || '#888888'} 
-                  strokeWidth={2.5} 
-                  activeDot={{ r: 6 }} 
-                  dot={{ r: 4 }} 
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+     
 
       {/* Weekly Progress Strip */}
       <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">

@@ -86,6 +86,39 @@ export const AppProvider = ({ children }) => {
   const [activeStudySeconds, setActiveStudySeconds] = useState(0);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
 
+  // Global Recall / QP Modal States
+  const [recallModalTask, setRecallModalTask] = useState(null);
+  const [isRecallModalOpen, setIsRecallModalOpen] = useState(false);
+  const [qpModalTask, setQpModalTask] = useState(null);
+  const [isQPModalOpen, setIsQPModalOpen] = useState(false);
+
+  const openRecallModal = (task) => {
+    setRecallModalTask(task);
+    setIsRecallModalOpen(true);
+  };
+  const closeRecallModal = () => {
+    setIsRecallModalOpen(false);
+    setRecallModalTask(null);
+  };
+  const openQPModal = (task) => {
+    setQpModalTask(task);
+    setIsQPModalOpen(true);
+  };
+  const closeQPModal = () => {
+    setIsQPModalOpen(false);
+    setQpModalTask(null);
+  };
+
+  // Global Task Completion Celebration Modal
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [completionStats, setCompletionStats] = useState({ completedCount: 0, day: 1 });
+
+  const openCompletionModal = (stats) => {
+    setCompletionStats(stats);
+    setShowCompletionModal(true);
+  };
+  const closeCompletionModal = () => setShowCompletionModal(false);
+
   // Quotes List
   const quotes = [
     "Success is the sum of small efforts, repeated day in and day out.",
@@ -1000,6 +1033,20 @@ export const AppProvider = ({ children }) => {
       startStudyTask,
       pauseStudyTask,
       resumeStudyTask,
+      // Global recall/QP modal
+      recallModalTask,
+      isRecallModalOpen,
+      openRecallModal,
+      closeRecallModal,
+      qpModalTask,
+      isQPModalOpen,
+      openQPModal,
+      closeQPModal,
+      // Task completion celebration
+      showCompletionModal,
+      completionStats,
+      openCompletionModal,
+      closeCompletionModal,
       login,
       register,
       logout,
